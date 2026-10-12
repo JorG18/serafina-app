@@ -208,8 +208,10 @@ function estado(msg) {
 
 const $m = (n) => '$' + Math.round(n).toLocaleString('es-AR');
 const prod = (id) => db.productos.find((p) => p.id === id);
-const teQueda = (p, pago = 'transfer') => p.precio - costo(p).valor - comision(p.precio, pago);
-const margen = (p, pago) => Math.round(teQueda(p, pago) / p.precio * 100);
+// Por transferencia todo sale con el descuento de Ajustes (10%), kits incluidos.
+const precioPago = (p, pago = 'transfer') => pago === 'transfer' ? conDescuento(p.precio, db.ajustes.transferencia) : p.precio;
+const teQueda = (p, pago = 'transfer') => precioPago(p, pago) - costo(p).valor - comision(precioPago(p, pago), pago);
+const margen = (p, pago) => Math.round(teQueda(p, pago) / precioPago(p, pago) * 100);
 // Venta física: precio de lista menos el descuento de Ajustes, redondeado a $100. Se cobra en mano, sin comisión.
 const conDescuento = (precio, pct) => Math.round(precio * (1 - pct / 100) / 100) * 100;
 const precioFisico = (p) => conDescuento(p.precio, db.ajustes.fisico);
@@ -224,13 +226,21 @@ const quedaFisico = (p) => precioFisico(p) - costo(p).valor;
 // Al guardar, la cotización se queda con los precios y costos de ese día.
 function congelar(c) {
   const e = escalon(c.items);
-  // El precio mayorista es solo con transferencia o efectivo.
+  // Por transferencia: las velas llevan el % mayorista si llegan a un escalón (reemplaza al 10%, no se suma);
+  // los kits y los pedidos chicos, el descuento por transferencia. Con tarjeta, precio de lista.
+  const transf = c.pago === 'transfer' ? db.ajustes.transferencia : 0;
   c.descuento = c.pago === 'transfer' && e.actual ? e.actual.pct : 0;
   c.items = c.items.map((it) => {
     const p = prod(it.id);
-    const precio = p.tipo === 'vela' && c.descuento ? conDescuento(p.precio, c.descuento) : p.precio;
-    return { ...it, nombre: p.nombre, lista: p.precio, precio, costo: costo(p).valor };
+    const desc = p.tipo === 'vela' && c.descuento ? c.descuento : transf;
+    return { ...it, nombre: p.nombre, lista: p.precio, precio: conDescuento(p.precio, desc), desc, costo: costo(p).valor };
   });
+  const ahorro = (cond) => c.items.filter(cond).reduce((s, it) => s + (it.lista - it.precio) * it.cant, 0);
+  const enKits = ahorro((it) => it.desc === transf && transf !== c.descuento);
+  c.lineas = [
+    c.descuento ? [`Descuento mayorista ${c.descuento}%${enKits ? ' (velas)' : ''}`, ahorro((it) => it.desc === c.descuento)] : null,
+    enKits ? [`Descuento por transferencia ${transf}%${c.descuento ? ' (kits)' : ''}`, enKits] : null,
+  ].filter(Boolean);
   c.total = c.items.reduce((s, it) => s + it.precio * it.cant, 0);
   c.subtotal = c.items.reduce((s, it) => s + it.lista * it.cant, 0);
   c.sena = c.descuento && e.velas >= db.ajustes.senaDesde ? Math.round(c.total / 2) : 0;
@@ -334,7 +344,7 @@ function inicio() {
         h('div', { class: 'label' }, 'Lo que te deja cada producto · pago por transferencia'),
         h('div', { class: 'list', style: 'margin-top:8px' }, ranking.map(({ p, q, c }, i) => h('div', { class: 'rank', style: `--i:${i}`, onclick: () => editarProducto(p) },
           h('span', {}, p.nombre, c.faltan.length ? h('span', { class: 'pill warn', style: 'margin-left:10px' }, 'falta un precio') : null),
-          h('span', { class: 'num' }, $m(q), h('span', { class: 'muted small' }, ` de ${$m(p.precio)}`)),
+          h('span', { class: 'num' }, $m(q), h('span', { class: 'muted small' }, ` de ${$m(precioPago(p))}`)),
           h('div', { class: 'bar' }, h('i', { style: `width:${Math.max(3, q / max * 100)}%` })))))),
       h('div', { class: 'surface pad' },
         h('div', { class: 'label' }, 'Para revisar'),
@@ -420,11 +430,11 @@ function armarCotizacion() {
 }
 function avisoMayorista(d, prev) {
   const e = escalon(d.items), a = db.ajustes;
-  if (!e.velas) return null;
+  if (!d.items.length) return null;
   const msgs = [];
-  if (d.pago === 'tarjeta' && e.actual) msgs.push(`Con tarjeta no hay precio mayorista. Por transferencia le sale ${e.actual.pct}% menos.`);
-  else if (prev.descuento) msgs.push(h('div', {}, h('b', {}, `Precio mayorista −${prev.descuento}%`), ` · ahorra ${$m(prev.subtotal - prev.total)}`));
-  if (e.siguiente) {
+  if (d.pago === 'tarjeta') msgs.push(`Por transferencia le sale ${e.actual ? `${e.actual.pct}% menos (precio mayorista)` : `${a.transferencia}% menos`}.`);
+  else prev.lineas.forEach(([txt, m]) => msgs.push(h('div', {}, h('b', {}, txt), ` · ahorra ${$m(m)}`)));
+  if (e.velas && e.siguiente) {
     const faltan = e.siguiente.desde - e.velas;
     msgs.push(h('div', { class: 'small' }, `Con ${faltan} ${faltan === 1 ? 'vela' : 'velas'} más baja al ${e.siguiente.pct}%.`));
   }
@@ -439,12 +449,12 @@ function comprobante(c) {
       h('table', {}, h('thead', {}, h('tr', {}, h('th', {}, 'Producto'), h('th', {}, 'Cant.'), h('th', {}, 'Importe'))),
         h('tbody', {}, c.items.map((it) => h('tr', {}, h('td', {}, it.nombre), h('td', {}, it.cant), h('td', { class: 'num' }, $m((it.lista ?? it.precio) * it.cant))))),
         h('tfoot', {},
-          c.descuento ? [
+          lineas(c).length ? [
             h('tr', { class: 'sub' }, h('td', {}, 'Subtotal'), h('td', {}), h('td', { class: 'num' }, $m(c.subtotal))),
-            h('tr', { class: 'sub' }, h('td', {}, `Descuento mayorista ${c.descuento}%`), h('td', {}), h('td', { class: 'num' }, '−' + $m(c.subtotal - c.total)))] : null,
+            lineas(c).map(([txt, m]) => h('tr', { class: 'sub' }, h('td', {}, txt), h('td', {}), h('td', { class: 'num' }, '−' + $m(m))))] : null,
           h('tr', {}, h('td', {}, 'Total'), h('td', {}), h('td', { class: 'num' }, $m(c.total))),
           c.sena ? h('tr', { class: 'sub' }, h('td', {}, 'Seña para empezar (50%)'), h('td', {}), h('td', { class: 'num' }, $m(c.sena))) : null)),
-      h('p', { class: 'small muted', style: 'margin:0' }, c.descuento ? 'Precio mayorista válido pagando por transferencia o efectivo. Válida por 7 días. Documento no válido como factura.' : 'Válida por 7 días. Documento no válido como factura.', h('br'), 'serafinadeco.com · @serafinadeco')),
+      h('p', { class: 'small muted', style: 'margin:0' }, nota(c), h('br'), 'serafinadeco.com · @serafinadeco')),
     h('div', { class: 'actions' },
       h('button', { class: 'primary wide', onclick: () => mandar(c) }, icon('whatsapp'), 'Mandar por WhatsApp o mail'),
       h('button', { class: 'quiet wide', onclick: async () => descargar(await pdfDe(c), nombrePdf(c)) }, icon('pdf'), 'Guardar PDF')),
@@ -459,6 +469,10 @@ function documento(c) {
   if (n.length >= 7 && n.length <= 8 && n === v.replace(/[.\s]/g, '')) return 'DNI: ' + Number(n).toLocaleString('es-AR');
   return 'DNI/CUIT: ' + v;
 }
+
+// cotizaciones guardadas antes de que existiera c.lineas
+const lineas = (c) => c.lineas ?? (c.descuento ? [[`Descuento mayorista ${c.descuento}%`, c.subtotal - c.total]] : []);
+const nota = (c) => (c.total < c.subtotal ? 'Precio con descuento válido pagando por transferencia o efectivo. ' : '') + 'Válida por 7 días. Documento no válido como factura.';
 
 // ----- PDF del comprobante -----
 const nombrePdf = (c) => `Cotizacion-${String(c.num).padStart(4, '0')}-SERAFINA.pdf`;
@@ -477,11 +491,11 @@ async function pdfDe(c) {
   doc.setDrawColor('#4A5A4C').line(14, y - 5, 134, y - 5);
   c.items.forEach((it) => fila(it.nombre, it.cant, pesos((it.lista ?? it.precio) * it.cant)));
   doc.line(14, y - 4, 134, y - 4); y += 2;
-  if (c.descuento) { fila('Subtotal', '', pesos(c.subtotal)); fila(`Descuento mayorista ${c.descuento}%`, '', '-' + pesos(c.subtotal - c.total)); }
+  if (lineas(c).length) { fila('Subtotal', '', pesos(c.subtotal)); lineas(c).forEach(([txt, m]) => fila(txt, '', '-' + pesos(m))); }
   doc.setFontSize(11); fila('Total', '', pesos(c.total), true); doc.setFontSize(9);
   if (c.sena) fila('Seña para empezar (50%)', '', pesos(c.sena));
   doc.setTextColor('#6B776E').setFontSize(8).setFont('helvetica', 'normal');
-  doc.text([...doc.splitTextToSize((c.descuento ? 'Precio mayorista válido pagando por transferencia o efectivo. ' : '') + 'Válida por 7 días. Documento no válido como factura.', 120), 'serafinadeco.com · @serafinadeco'], 14, Math.max(y + 8, 180));
+  doc.text([...doc.splitTextToSize(nota(c), 120), 'serafinadeco.com · @serafinadeco'], 14, Math.max(y + 8, 180));
   return doc.output('blob');
 }
 function descargar(blob, nombre) { h('a', { href: URL.createObjectURL(blob), download: nombre }).click(); }
@@ -507,7 +521,7 @@ function productos() {
       h('span', { class: 'num r' }, $m(teQueda(p)), h('div', { class: 'muted small' }, `${margen(p)}%`)),
       icon('flecha'));
   };
-  const cabecera = h('div', { class: 'row prow thead' }, h('span', {}, 'Producto'), h('span', { class: 'r hide-s' }, 'La vendés a'), h('span', { class: 'r hide-s fisico' }, `Físico −${db.ajustes.fisico}%`), h('span', { class: 'r hide-s' }, 'Te cuesta'), h('span', { class: 'r' }, 'Te queda'), h('span'));
+  const cabecera = h('div', { class: 'row prow thead' }, h('span', {}, 'Producto'), h('span', { class: 'r hide-s' }, 'La vendés a'), h('span', { class: 'r hide-s fisico' }, `Físico −${db.ajustes.fisico}%`), h('span', { class: 'r hide-s' }, 'Te cuesta'), h('span', { class: 'r' }, `Te queda (transf. −${db.ajustes.transferencia}%)`), h('span'));
   return [
     pagehead('Productos', 'Tocá uno para cambiar el precio o lo que lleva. Todo se recalcula solo.',
       h('button', { class: 'primary', onclick: nuevoProducto }, icon('mas'), 'Nueva vela')),
@@ -626,9 +640,10 @@ function ajustes() {
       fila('Valor de tu hora', 'Se suma al costo de cada vela.', stepper(a.hora, (v) => { a.hora = v; save(); }, 500, $m)),
       fila('Gastos generales', 'Luz, gas, herramientas. % sobre los insumos.', stepper(a.gastos, (v) => { a.gastos = v; save(); }, 1, (v) => v + '%')),
       fila('Comisión de Pago Nube', 'Solo si pagan con tarjeta. Se le suma IVA.', stepper(a.comision, (v) => { a.comision = v; save(); }, 0.1, (v) => v.toFixed(1) + '%')),
+      fila('Descuento por transferencia', 'Todo el pedido, kits incluidos. Si llega a precio mayorista, las velas llevan ese en vez de este.', stepper(a.transferencia, (v) => { a.transferencia = v; save(); }, 1, (v) => v + '%')),
       fila('Descuento venta física', 'Ferias y en persona. Se resta del precio de lista.', stepper(a.fisico, (v) => { a.fisico = v; save(); }, 1, (v) => v + '%')),
       fila('Ganancia mínima', 'Te aviso si un producto deja menos.', stepper(a.objetivo, (v) => { a.objetivo = v; save(); }, 1, (v) => v + '%'))),
-    h('div', { class: 'label', style: 'margin:30px 0 12px' }, 'Precio mayorista · solo transferencia o efectivo, sin kits'),
+    h('div', { class: 'label', style: 'margin:30px 0 12px' }, 'Precio mayorista · solo transferencia o efectivo, sin kits · reemplaza al de transferencia'),
     h('div', { class: 'surface list' },
       a.mayorista.map((e, n) => h('div', { class: 'row', style: 'grid-template-columns:1fr auto auto' },
         h('h3', {}, `Escalón ${n + 1}`),

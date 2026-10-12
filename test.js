@@ -8,7 +8,8 @@ const p = (n) => db.productos.find((x) => x.nombre === n);
 assert.strictEqual(db.insumos.length, sheet[T.ins].slice(2).filter((r) => r[0]).length);
 assert.strictEqual(db.ajustes.hora, 10000);
 assert.strictEqual(db.ajustes.comision, 6.4);
-assert.deepStrictEqual(db.ajustes.mayorista[3], { desde: 48, pct: 30 });
+assert.deepStrictEqual(db.ajustes.mayorista, [{ desde: 6, pct: 20 }, { desde: 12, pct: 25 }, { desde: 24, pct: 30 }]);
+assert.strictEqual(db.ajustes.transferencia, 10);
 // costo por vela igual a la columna auxiliar de la planilla
 for (const r of sheet[T.vel].slice(2)) if (r[1] === 'Vela' && typeof r[12] === 'number' && !costo(p(r[0])).faltan.length)
   assert(Math.abs(costo(p(r[0])).valor - r[12]) < 0.01, r[0]);

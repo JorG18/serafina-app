@@ -8,14 +8,13 @@ const AJUSTES = [
   ['m2', 'Desde qué monto hay 2 cuotas'], ['m3', 'Desde qué monto hay 3 cuotas'], ['m6', 'Desde qué monto hay 6 cuotas'],
   ['gastos', 'Gastos generales (luz, gas, herramientas)', 1], ['hora', 'Cuánto vale una hora de trabajo'], ['objetivo', 'Ganancia mínima que querés por venta', 1],
   // estos los agrega la app debajo de los de la planilla
-  ['fisico', 'Descuento venta física', 1], ['senaDesde', 'Seña del 50% desde (velas sueltas)'],
+  ['fisico', 'Descuento venta física', 1], ['transferencia', 'Descuento por transferencia', 1], ['senaDesde', 'Seña del 50% desde (velas sueltas)'],
   ['may0d', 'Mayorista escalón 1: desde (velas)'], ['may0p', 'Mayorista escalón 1: descuento', 1],
   ['may1d', 'Mayorista escalón 2: desde (velas)'], ['may1p', 'Mayorista escalón 2: descuento', 1],
   ['may2d', 'Mayorista escalón 3: desde (velas)'], ['may2p', 'Mayorista escalón 3: descuento', 1],
-  ['may3d', 'Mayorista escalón 4: desde (velas)'], ['may3p', 'Mayorista escalón 4: descuento', 1],
 ];
-const DEFAULTS = { iva: 21, comision: 6.4, c2: 0, c3: 0, c6: 0, m2: Infinity, m3: Infinity, m6: Infinity, gastos: 10, hora: 8000, objetivo: 35, fisico: 15, senaDesde: 24,
-  may0d: 6, may0p: 15, may1d: 12, may1p: 20, may2d: 24, may2p: 25, may3d: 48, may3p: 30 };
+const DEFAULTS = { iva: 21, comision: 6.4, c2: 0, c3: 0, c6: 0, m2: Infinity, m3: Infinity, m6: Infinity, gastos: 10, hora: 8000, objetivo: 35, fisico: 15, transferencia: 10, senaDesde: 24,
+  may0d: 6, may0p: 20, may1d: 12, may1p: 25, may2d: 24, may2p: 30 };
 
 const filas = (t) => (t || []).slice(2).filter((r) => r[0] !== '' && r[0] != null);
 const num = (v) => (typeof v === 'number' ? v : Number(String(v).replace(/\./g, '').replace(',', '.')) || 0);
@@ -29,8 +28,8 @@ function fromSheet(s) {
     if (a && r[1] !== '' && r[1] != null) plano[a[0]] = redondo(num(r[1]) * (a[2] ? 100 : 1));
   }
   const aj = { ...DEFAULTS, ...plano };
-  const ajustes = { ...aj, mayorista: [0, 1, 2, 3].map((n) => ({ desde: aj[`may${n}d`], pct: aj[`may${n}p`] })) };
-  for (const n of [0, 1, 2, 3]) { delete ajustes[`may${n}d`]; delete ajustes[`may${n}p`]; }
+  const ajustes = { ...aj, mayorista: [0, 1, 2].map((n) => ({ desde: aj[`may${n}d`], pct: aj[`may${n}p`] })) };
+  for (const n of [0, 1, 2]) { delete ajustes[`may${n}d`]; delete ajustes[`may${n}p`]; }
 
   const insumos = filas(s[T.ins]).map((r, i) => ({ id: 'i' + i, nombre: String(r[0]), unidad: r[1] || 'Unidades', cantidad: num(r[2]), pague: num(r[3]), fecha: fecha(r[4]) }));
   const productos = filas(s[T.vel]).map((r, i) => String(r[1]).trim() === 'Kit'
@@ -54,7 +53,7 @@ function toSheet(db) {
     { tab: T.rec, clear: 'A3:C', start: 'A3', rows: velas.flatMap((p) => p.receta.map((r) => [p.nombre, r.ins, r.cant])) },
     { tab: T.vel, clear: 'A3:E', start: 'A3', rows: db.productos.map((p) => p.tipo === 'kit' ? [p.nombre, 'Kit', '', '', p.precio] : [p.nombre, 'Vela', p.porLote, p.horas, p.precio]) },
     { tab: T.kit, clear: 'A3:C', start: 'A3', rows: kits.flatMap((k) => contar(k.velas).map(([n, c]) => [k.nombre, n, c])) },
-    { tab: T.aju, start: 'A3', rows: AJUSTES.map(([k, label, pct]) => [label, Number.isFinite(a[k]) ? redondo(pct ? a[k] / 100 : a[k]) : '']) },
+    { tab: T.aju, clear: 'A3:B40', start: 'A3', rows: AJUSTES.map(([k, label, pct]) => [label, Number.isFinite(a[k]) ? redondo(pct ? a[k] / 100 : a[k]) : '']) },
     { tab: T.cot, clear: 'A1:I', start: 'A1', rows: [['N.º', 'Fecha', 'Clienta', 'DNI/CUIT', 'Pago', 'Estado', 'Total', 'Le quedó', 'datos de la app (no tocar)'],
       ...db.cotizaciones.map((c) => [c.num, fecha(c.fecha), c.cliente, c.doc || '', c.pago === 'tarjeta' ? 'Tarjeta' : 'Transferencia', c.estado === 'vendida' ? 'Vendida' : 'Cotización', c.total, Math.round(c.ganancia), JSON.stringify(c)])] },
   ];
