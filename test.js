@@ -22,7 +22,7 @@ assert.strictEqual(comision(30000, 'transfer'), 0);
 const w = Object.fromEntries(toSheet(db).map((x) => [x.tab, x]));
 const back = {};
 for (const [tab, x] of Object.entries(w)) back[tab] = x.start === 'A3' ? [[], [], ...x.rows] : x.rows;
-db.cotizaciones = [{ num: 1, fecha: '2026-10-12T15:00:00.000Z', cliente: 'Prueba', pago: 'tarjeta', estado: 'vendida', total: 1000, ganancia: 500, items: [] }];
+db.cotizaciones = [{ num: 1, fecha: '2026-10-12T15:00:00.000Z', cliente: 'Prueba', doc: '20123456789', pago: 'tarjeta', estado: 'vendida', total: 1000, ganancia: 500, items: [] }];
 back[T.cot] = Object.fromEntries(toSheet(db).map((x) => [x.tab, x]))[T.cot].rows;
 const db2 = fromSheet(back);
 assert.deepStrictEqual(db2.insumos.map((i) => [i.nombre, i.cantidad, i.pague]), db.insumos.map((i) => [i.nombre, i.cantidad, i.pague]));

@@ -39,7 +39,7 @@ function fromSheet(s) {
   const porNombre = (n) => productos.find((p) => p.nombre === n);
   for (const r of filas(s[T.rec])) porNombre(r[0])?.receta?.push({ ins: String(r[1]), cant: num(r[2]) });
   for (const r of filas(s[T.kit])) for (let n = 0; n < num(r[2]); n++) porNombre(r[0])?.velas?.push(String(r[1]));
-  const cotizaciones = (s[T.cot] || []).slice(1).filter((r) => r[7]).map((r) => JSON.parse(r[7]));
+  const cotizaciones = (s[T.cot] || []).slice(1).map((r) => r.find((x) => String(x).startsWith('{'))).filter(Boolean).map((x) => JSON.parse(x));
   return { ajustes, insumos, productos, cotizaciones };
 }
 
@@ -55,8 +55,8 @@ function toSheet(db) {
     { tab: T.vel, clear: 'A3:E', start: 'A3', rows: db.productos.map((p) => p.tipo === 'kit' ? [p.nombre, 'Kit', '', '', p.precio] : [p.nombre, 'Vela', p.porLote, p.horas, p.precio]) },
     { tab: T.kit, clear: 'A3:C', start: 'A3', rows: kits.flatMap((k) => contar(k.velas).map(([n, c]) => [k.nombre, n, c])) },
     { tab: T.aju, start: 'A3', rows: AJUSTES.map(([k, label, pct]) => [label, Number.isFinite(a[k]) ? redondo(pct ? a[k] / 100 : a[k]) : '']) },
-    { tab: T.cot, clear: 'A1:H', start: 'A1', rows: [['N.º', 'Fecha', 'Clienta', 'Pago', 'Estado', 'Total', 'Le quedó', 'datos de la app (no tocar)'],
-      ...db.cotizaciones.map((c) => [c.num, fecha(c.fecha), c.cliente, c.pago === 'tarjeta' ? 'Tarjeta' : 'Transferencia', c.estado === 'vendida' ? 'Vendida' : 'Cotización', c.total, Math.round(c.ganancia), JSON.stringify(c)])] },
+    { tab: T.cot, clear: 'A1:I', start: 'A1', rows: [['N.º', 'Fecha', 'Clienta', 'DNI/CUIT', 'Pago', 'Estado', 'Total', 'Le quedó', 'datos de la app (no tocar)'],
+      ...db.cotizaciones.map((c) => [c.num, fecha(c.fecha), c.cliente, c.doc || '', c.pago === 'tarjeta' ? 'Tarjeta' : 'Transferencia', c.estado === 'vendida' ? 'Vendida' : 'Cotización', c.total, Math.round(c.ganancia), JSON.stringify(c)])] },
   ];
 }
 

@@ -356,8 +356,15 @@ function cotizar() {
       : h('div', { class: 'surface empty' }, icon('vacio'), h('h3', {}, 'Todavía no hiciste ninguna cotización'), h('p', { class: 'muted small', style: 'margin:0' }, 'Tocá «Nueva cotización», elegí los productos y te armo el comprobante para mandar.')),
   ];
 }
+let porBorrar = null; // cotización que pidió eliminar y falta confirmar
 function filaCotizacion(c) {
   const vendida = c.estado === 'vendida';
+  if (porBorrar === c.id) return h('div', { class: 'row qrow' },
+    h('div', {}, h('h3', {}, `¿Eliminar la cotización de ${c.cliente || 'Sin nombre'}?`), h('div', { class: 'muted small', style: 'margin-top:4px' }, vendida ? 'Era una venta: deja de contar en el mes. No se puede deshacer.' : 'No se puede deshacer.')),
+    h('div'),
+    h('div', { style: 'display:flex;gap:8px' },
+      h('button', { class: 'quiet', onclick: () => { porBorrar = null; render(); } }, 'No, dejarla'),
+      h('button', { class: 'primary', style: 'background:var(--alerta)', onclick: () => { db.cotizaciones = db.cotizaciones.filter((x) => x !== c); porBorrar = null; render(); aviso('Cotización eliminada.'); } }, 'Sí, eliminar')));
   return h('div', { class: 'row qrow' },
     h('div', {},
       h('div', { style: 'display:flex;gap:10px;align-items:center;flex-wrap:wrap' }, h('h3', {}, c.cliente || 'Sin nombre'),
@@ -366,6 +373,7 @@ function filaCotizacion(c) {
     h('div', { style: 'text-align:right' }, h('div', { class: 'num', style: 'font-size:26px' }, $m(c.total)), h('div', { class: 'muted small' }, `te queda ${$m(c.ganancia)}`)),
     h('div', { style: 'display:flex;gap:8px' },
       h('button', { class: 'quiet', onclick: () => comprobante(c) }, 'Ver'),
+      h('button', { class: 'quiet', onclick: () => { porBorrar = c.id; render(); } }, 'Eliminar'),
       vendida
         ? h('button', { class: 'quiet', onclick: () => { c.estado = 'cotizacion'; render(); } }, 'Deshacer')
         : h('button', { class: 'primary', onclick: () => { c.estado = 'vendida'; c.fecha = new Date().toISOString(); render(); aviso('Listo, ya cuenta como venta del mes.'); } }, icon('ok'), 'Se concretó')));
@@ -387,7 +395,8 @@ function armarCotizacion() {
         h('div', { class: 'label', style: 'margin-bottom:10px' }, 'Velas'), h('div', { class: 'picker' }, db.productos.filter((p) => p.tipo === 'vela').map(card)),
         h('div', { class: 'label', style: 'margin:22px 0 10px' }, 'Kits'), h('div', { class: 'picker' }, db.productos.filter((p) => p.tipo === 'kit').map(card))),
       h('div', { class: 'surface pad ticket' },
-        field('¿Para quién es?', h('input', { value: d.cliente, placeholder: 'Nombre de la clienta', oninput: (e) => { d.cliente = e.target.value; } })),
+        field('¿Para quién es?', h('input', { value: d.cliente, placeholder: 'Nombre de la persona o empresa', oninput: (e) => { d.cliente = e.target.value; } })),
+        field('DNI, CUIL o CUIT', h('input', { value: d.doc || '', inputmode: 'numeric', placeholder: 'Si te lo pide (no es obligatorio)', oninput: (e) => { d.doc = e.target.value; } })),
         h('div', { class: 'field' }, h('span', {}, '¿Cómo te paga?'),
           h('div', { class: 'seg' }, [['transfer', 'Transferencia'], ['tarjeta', 'Tarjeta']].map(([v, l]) => h('button', { class: d.pago === v ? 'on' : '', onclick: () => { d.pago = v; render(); } }, l)))),
         h('div', { class: 'list', style: 'margin-top:14px' }, d.items.length
@@ -426,7 +435,7 @@ function comprobante(c) {
   panel('Comprobante', () => [
     h('div', { class: 'receipt' },
       h('div', { style: 'display:flex;justify-content:space-between;align-items:center;gap:12px' }, h('img', { src: 'logo.svg', alt: 'SERAFINA DECO' }), h('span', { class: 'small' }, 'Cotización N.º ' + String(c.num).padStart(4, '0'))),
-      h('p', { class: 'small', style: 'margin:22px 0 0' }, 'Para: ', c.cliente || '—', h('br'), 'Fecha: ', new Date(c.fecha).toLocaleDateString('es-AR')),
+      h('p', { class: 'small', style: 'margin:22px 0 0' }, 'Para: ', c.cliente || '—', h('br'), documento(c) ? [documento(c), h('br')] : null, 'Fecha: ', new Date(c.fecha).toLocaleDateString('es-AR')),
       h('table', {}, h('thead', {}, h('tr', {}, h('th', {}, 'Producto'), h('th', {}, 'Cant.'), h('th', {}, 'Importe'))),
         h('tbody', {}, c.items.map((it) => h('tr', {}, h('td', {}, it.nombre), h('td', {}, it.cant), h('td', { class: 'num' }, $m((it.lista ?? it.precio) * it.cant))))),
         h('tfoot', {},
@@ -442,6 +451,15 @@ function comprobante(c) {
   ]);
 }
 
+// 11 números = CUIT/CUIL (20-12345678-9); si no, DNI con puntos. Si escribió otra cosa, va tal cual.
+function documento(c) {
+  const v = (c.doc || '').trim(), n = v.replace(/\D/g, '');
+  if (!v) return '';
+  if (n.length === 11) return `CUIT/CUIL: ${n.slice(0, 2)}-${n.slice(2, 10)}-${n.slice(10)}`;
+  if (n.length >= 7 && n.length <= 8 && n === v.replace(/[.\s]/g, '')) return 'DNI: ' + Number(n).toLocaleString('es-AR');
+  return 'DNI/CUIT: ' + v;
+}
+
 // ----- PDF del comprobante -----
 const nombrePdf = (c) => `Cotizacion-${String(c.num).padStart(4, '0')}-SERAFINA.pdf`;
 async function pdfDe(c) {
@@ -452,7 +470,7 @@ async function pdfDe(c) {
   const pesos = (n) => $m(n); // la fuente del PDF no tiene el signo «−», por eso se usa «-»
   doc.setTextColor('#36433A').setFont('helvetica', 'normal').setFontSize(9);
   doc.text('Cotización N.º ' + String(c.num).padStart(4, '0'), 134, 21, { align: 'right' });
-  doc.text(['Para: ' + (c.cliente || '-'), 'Fecha: ' + new Date(c.fecha).toLocaleDateString('es-AR')], 14, 40);
+  doc.text(['Para: ' + (c.cliente || '-'), ...(documento(c) ? [documento(c)] : []), 'Fecha: ' + new Date(c.fecha).toLocaleDateString('es-AR')], 14, 40);
   let y = 56;
   const fila = (a, b, d, negrita) => { doc.setFont('helvetica', negrita ? 'bold' : 'normal'); doc.text(String(a), 14, y, { maxWidth: 82 }); doc.text(String(b), 104, y, { align: 'right' }); doc.text(d, 134, y, { align: 'right' }); y += 7; };
   doc.setTextColor('#4A5A4C'); fila('Producto', 'Cant.', 'Importe', true); doc.setTextColor('#36433A');
