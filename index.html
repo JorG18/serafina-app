@@ -165,7 +165,7 @@ input.bad { border-color: var(--alerta); }
 <script src="datos.js"></script>
 <script>
 // ===== Datos: viven en la planilla de Google; la tablet guarda una copia por si se corta internet =====
-const URL_PLANILLA = 'PEGAR_ACA_LA_URL_DEL_APPS_SCRIPT';
+const URL_PLANILLA = 'https://script.google.com/macros/s/AKfycby3Y3oU76wcyCD-vPyocg_nj6mgEkfKbNT8CBicfSJj2rqnC27KcCrraZ-HJIVsMiIgeg/exec';
 const KEY = 'serafina-app-v1';
 // La clave llega una sola vez en el link que manda Jorge (…/#k=CLAVE) y queda guardada en la tablet.
 if (location.hash.startsWith('#k=')) { localStorage.setItem(KEY + '-clave', decodeURIComponent(location.hash.slice(3))); history.replaceState(null, '', location.pathname); }
