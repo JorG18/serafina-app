@@ -384,10 +384,19 @@ function filaCotizacion(c) {
     h('div', { style: 'text-align:right' }, h('div', { class: 'num', style: 'font-size:26px' }, $m(c.total)), h('div', { class: 'muted small' }, `te queda ${$m(c.ganancia)}`)),
     h('div', { style: 'display:flex;gap:8px' },
       h('button', { class: 'quiet', onclick: () => comprobante(c) }, 'Ver'),
+      h('button', { class: 'quiet', onclick: () => editarCotizacion(c) }, 'Editar'),
       h('button', { class: 'quiet', onclick: () => { porBorrar = c.id; render(); } }, 'Eliminar'),
       vendida
         ? h('button', { class: 'quiet', onclick: () => { c.estado = 'cotizacion'; render(); } }, 'Deshacer')
         : h('button', { class: 'primary', onclick: () => { c.estado = 'vendida'; c.fecha = new Date().toISOString(); render(); aviso('Listo, ya cuenta como venta del mes.'); } }, icon('ok'), 'Se concretó')));
+}
+// Vuelve a armar el borrador desde una cotización guardada. Los productos que ya no existen se quitan.
+function editarCotizacion(c) {
+  const items = c.items.filter((it) => prod(it.id)).map((it) => ({ id: it.id, cant: it.cant }));
+  draft = { ...structuredClone(c), items,
+    mayorista: c.mayorista ?? !!c.descuento, descTransf: c.descTransf ?? c.pago === 'transfer' }; // las viejas no tenían casillas
+  animar = true; render();
+  if (items.length < c.items.length) aviso('Se quitaron productos que ya no están en la lista.');
 }
 let faltaProducto = false;
 function armarCotizacion() {
@@ -399,7 +408,8 @@ function armarCotizacion() {
       h('span', {}, p.nombre), h('span', { class: 'muted small num' }, $m(p.precio)), it ? h('span', { class: 'pill ok q' }, `× ${it.cant}`) : null);
   };
   return [
-    pagehead('Nueva cotización', 'Tocá los productos para sumarlos. A la derecha se arma el comprobante.',
+    pagehead(d.num ? `Editar cotización N.º ${String(d.num).padStart(4, '0')}` : 'Nueva cotización',
+      d.num ? 'Cambiá lo que haga falta. Se recalcula con los precios de hoy.' : 'Tocá los productos para sumarlos. A la derecha se arma el comprobante.',
       h('button', { class: 'quiet', onclick: () => { draft = null; animar = true; render(); } }, 'Cancelar')),
     h('div', { class: 'builder' },
       h('div', {},
@@ -424,9 +434,13 @@ function armarCotizacion() {
           h('div', { style: 'text-align:right' }, h('div', { class: 'label' }, 'A vos te queda'), h('div', { class: 'num' }, $m(prev.ganancia)))),
         h('button', { class: 'primary block', style: 'margin-top:14px', onclick: () => {
           if (!d.items.length) { faltaProducto = true; return render(); }
-          const num = Math.max(0, ...db.cotizaciones.map((c) => c.num)) + 1;
-          const c = congelar({ ...d, id: Date.now(), num, fecha: new Date().toISOString(), estado: 'cotizacion' });
-          db.cotizaciones.push(c); draft = null; animar = true; render(); comprobante(c);
+          let c;
+          if (d.num) { c = congelar(d); db.cotizaciones = db.cotizaciones.map((x) => x.id === d.id ? c : x); } // edición: mismo número, fecha y estado
+          else {
+            const num = Math.max(0, ...db.cotizaciones.map((c) => c.num)) + 1;
+            c = congelar({ ...d, id: Date.now(), num, fecha: new Date().toISOString(), estado: 'cotizacion' });
+            db.cotizaciones.push(c);
+          } draft = null; animar = true; render(); comprobante(c);
         } }, 'Listo, ver comprobante'),
         faltaProducto ? h('p', { class: 'small warn', style: 'margin:10px 0 0' }, 'Sumá al menos un producto tocándolo a la izquierda.') : null)),
   ];
