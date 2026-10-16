@@ -480,26 +480,67 @@ const nota = (c) => (c.total < c.subtotal ? 'Precio con descuento válido pagand
 
 // ----- PDF del comprobante -----
 const nombrePdf = (c) => `Cotizacion-${String(c.num).padStart(4, '0')}-SERAFINA.pdf`;
+// Fuentes de la marca en TrueType (jsPDF no embebe OTF/woff2). Si no bajan (sin internet), Helvetica.
+let fuentesPdf;
+const b64 = (buf) => { let s = ''; const u = new Uint8Array(buf); for (let i = 0; i < u.length; i += 8192) s += String.fromCharCode(...u.subarray(i, i + 8192)); return btoa(s); };
+const cargarFuentesPdf = () => fuentesPdf ??= Promise.all(['OrticaLinear-Light', 'HedvigLettersSans-Regular']
+  .map((f) => fetch(`fonts/${f}.ttf`).then((r) => { if (!r.ok) throw r; return r.arrayBuffer(); }).then(b64))).catch(() => { fuentesPdf = null; return null; });
 async function pdfDe(c) {
   const doc = new jspdf.jsPDF({ unit: 'mm', format: 'a5' }); // 148 × 210
+  const F = await cargarFuentesPdf();
+  if (F) [['Ortica', 0], ['Hedvig', 1]].forEach(([n, i]) => { doc.addFileToVFS(n + '.ttf', F[i]); doc.addFont(n + '.ttf', n, 'normal'); });
+  const titulo = F ? 'Ortica' : 'helvetica', texto = F ? 'Hedvig' : 'helvetica';
+  const SALVIA = '#36433A', SALVIA2 = '#4A5A4C', SALVIA3 = '#6F8270', LINO = '#F4F0E8', SAGE = '#C9D1C3';
+  const pesos = (n) => $m(n), menos = F ? '−' : '-'; // Helvetica no tiene «−»
+  const X0 = 14, X1 = 134;
+  // con charSpace, align:'right' se pasa del margen: se alinea a mano con el ancho medido
+  const label = (t, x, y, align = 'left') => {
+    const T = t.toUpperCase(); doc.setFont(texto, 'normal').setFontSize(6.5).setTextColor(SALVIA3);
+    doc.setCharSpace(0.35).text(T, align === 'right' ? x - doc.getTextWidth(T) : x, y).setCharSpace(0);
+  };
+
+  doc.setFillColor(LINO).rect(0, 0, 148, 210, 'F');
   const img = new Image(); img.src = 'logo.svg'; await img.decode();
-  const cv = h('canvas', { width: 1595, height: 193 }); cv.getContext('2d').drawImage(img, 0, 0, 1595, 193);
-  doc.addImage(cv.toDataURL('image/png'), 'PNG', 14, 16, 60, 60 * 193 / 1595);
-  const pesos = (n) => $m(n); // la fuente del PDF no tiene el signo «−», por eso se usa «-»
-  doc.setTextColor('#36433A').setFont('helvetica', 'normal').setFontSize(9);
-  doc.text('Cotización N.º ' + String(c.num).padStart(4, '0'), 134, 21, { align: 'right' });
-  doc.text(['Para: ' + (c.cliente || '-'), ...(documento(c) ? [documento(c)] : []), 'Fecha: ' + new Date(c.fecha).toLocaleDateString('es-AR')], 14, 40);
-  let y = 56;
-  const fila = (a, b, d, negrita) => { doc.setFont('helvetica', negrita ? 'bold' : 'normal'); doc.text(String(a), 14, y, { maxWidth: 82 }); doc.text(String(b), 104, y, { align: 'right' }); doc.text(d, 134, y, { align: 'right' }); y += 7; };
-  doc.setTextColor('#4A5A4C'); fila('Producto', 'Cant.', 'Importe', true); doc.setTextColor('#36433A');
-  doc.setDrawColor('#4A5A4C').line(14, y - 5, 134, y - 5);
-  c.items.forEach((it) => fila(it.nombre, it.cant, pesos((it.lista ?? it.precio) * it.cant)));
-  doc.line(14, y - 4, 134, y - 4); y += 2;
-  if (lineas(c).length) { fila('Subtotal', '', pesos(c.subtotal)); lineas(c).forEach(([txt, m]) => fila(txt, '', '-' + pesos(m))); }
-  doc.setFontSize(11); fila('Total', '', pesos(c.total), true); doc.setFontSize(9);
-  if (c.sena) fila('Seña para empezar (50%)', '', pesos(c.sena));
-  doc.setTextColor('#6B776E').setFontSize(8).setFont('helvetica', 'normal');
-  doc.text([...doc.splitTextToSize(nota(c), 120), 'serafinadeco.com · @serafinadeco'], 14, Math.max(y + 8, 180));
+  const cv = h('canvas', { width: 1000, height: 121 }); cv.getContext('2d').drawImage(img, 0, 0, 1000, 121);
+  doc.addImage(cv.toDataURL('image/png'), 'PNG', X0, 17, 52, 52 * 193 / 1595);
+  label('Cotización', X1, 15, 'right');
+  doc.setFont(titulo, 'normal').setFontSize(20).setTextColor(SALVIA).text('N.º ' + String(c.num).padStart(4, '0'), X1, 23, { align: 'right' });
+  doc.setDrawColor(SALVIA).setLineWidth(0.2).line(X0, 31, X1, 31);
+
+  label('Para', X0, 40); label('Fecha', X1, 40, 'right');
+  doc.setFont(titulo, 'normal').setFontSize(13).setTextColor(SALVIA);
+  const nombre = doc.splitTextToSize(c.cliente || '-', 82);
+  doc.text(nombre, X0, 46.5);
+  doc.setFont(texto, 'normal').setFontSize(9).text(new Date(c.fecha).toLocaleDateString('es-AR'), X1, 46.5, { align: 'right' });
+  let y = 46.5 + (nombre.length - 1) * 5.5;
+  if (documento(c)) { doc.setTextColor(SALVIA2).setFontSize(8.5).text(documento(c), X0, y + 5.5); y += 5.5; }
+
+  y += 14;
+  label('Producto', X0, y); label('Cant.', 106, y, 'right'); label('Importe', X1, y, 'right');
+  y += 3; doc.setDrawColor(SAGE).setLineWidth(0.3).line(X0, y, X1, y); y += 6.5;
+  doc.setFont(texto, 'normal').setFontSize(9.5).setTextColor(SALVIA);
+  c.items.forEach((it) => {
+    const ls = doc.splitTextToSize(it.nombre, 78);
+    doc.text(ls, X0, y); doc.text(String(it.cant), 106, y, { align: 'right' }); doc.text(pesos((it.lista ?? it.precio) * it.cant), X1, y, { align: 'right' });
+    y += 4.6 * ls.length + 3;
+  });
+  y -= 1.5; doc.line(X0, y, X1, y); y += 6.5;
+
+  const fila = (a, b) => { doc.text(a, 80, y, { align: 'right' }); doc.text(b, X1, y, { align: 'right' }); y += 5.5; };
+  doc.setFontSize(8.5).setTextColor(SALVIA2);
+  if (lineas(c).length) { fila('Subtotal', pesos(c.subtotal)); lineas(c).forEach(([txt, m]) => fila(txt, menos + pesos(m))); }
+  y += 1.5;
+  doc.setFillColor(SALVIA).roundedRect(X0, y, X1 - X0, 17, 2.5, 2.5, 'F');
+  doc.setFont(texto, 'normal').setFontSize(6.5).setTextColor(SAGE).setCharSpace(0.35).text('TOTAL', X0 + 6, y + 10.2).setCharSpace(0);
+  doc.setFont(titulo, 'normal').setFontSize(20).setTextColor(LINO).text(pesos(c.total), X1 - 6, y + 11, { align: 'right' });
+  y += 17;
+  if (c.sena) { y += 6.5; doc.setFont(texto, 'normal').setFontSize(8.5).setTextColor(SALVIA2); fila('Seña para empezar (50%)', pesos(c.sena)); }
+
+  const pie = doc.setFont(texto, 'normal').setFontSize(7).splitTextToSize(nota(c), X1 - X0);
+  const yPie = Math.max(y + 14, 196 - pie.length * 3.4);
+  doc.setDrawColor(SAGE).setLineWidth(0.2).line(X0, yPie - 5, X1, yPie - 5);
+  doc.setTextColor(SALVIA3).text(pie, X0, yPie, { lineHeightFactor: 1.45 });
+  doc.setTextColor(SALVIA2).text('serafinadeco.com', X0, 201).text('@serafinadeco', X1, 201, { align: 'right' });
   return doc.output('blob');
 }
 function descargar(blob, nombre) { h('a', { href: URL.createObjectURL(blob), download: nombre }).click(); }
