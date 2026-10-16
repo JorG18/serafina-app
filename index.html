@@ -67,6 +67,7 @@ button.icon { width: 56px; padding: 0; border-radius: 50%; }
 input { font: inherit; font-size: 21px; color: var(--salvia); background: #fff; border: 1.5px solid rgba(54, 67, 58, .16); border-radius: 18px; padding: 0 18px; min-height: 60px; width: 100%; transition: border-color .2s; }
 input:focus { outline: none; border-color: var(--salvia); }
 input.bad { border-color: var(--alerta); }
+input[type=checkbox] { width: 22px; height: 22px; min-height: 0; padding: 0; flex: none; accent-color: var(--salvia); }
 .seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; background: var(--lino2); border-radius: 20px; padding: 5px; gap: 5px; }
 .seg button { background: transparent; min-height: 52px; padding: 0 10px; }
 .seg button.on { background: var(--papel); box-shadow: 0 4px 14px -6px rgba(54, 67, 58, .3); }
@@ -229,7 +230,7 @@ function congelar(c) {
   // Por transferencia: las velas llevan el % mayorista si llegan a un escalón (reemplaza al 10%, no se suma);
   // los kits y los pedidos chicos, el descuento por transferencia. Con tarjeta, precio de lista.
   const transf = c.pago === 'transfer' ? db.ajustes.transferencia : 0;
-  c.descuento = c.pago === 'transfer' && e.actual ? e.actual.pct : 0;
+  c.descuento = c.pago === 'transfer' && c.mayorista && e.actual ? e.actual.pct : 0;
   c.items = c.items.map((it) => {
     const p = prod(it.id);
     const desc = p.tipo === 'vela' && c.descuento ? c.descuento : transf;
@@ -415,6 +416,9 @@ function armarCotizacion() {
                 prev.items[n].precio < prev.items[n].lista ? h('s', { style: 'margin-left:8px' }, $m(prev.items[n].lista * it.cant)) : null)),
               stepper(it.cant, (v) => { it.cant = v; if (!v) d.items = d.items.filter((x) => x !== it); render(); })))
           : h('p', { class: 'muted small' }, 'Todavía no sumaste productos.')),
+        h('label', { class: 'field', style: 'display:flex;align-items:center;gap:10px;cursor:pointer' },
+          h('input', { type: 'checkbox', checked: !!d.mayorista, onchange: (e) => { d.mayorista = e.target.checked; render(); } }),
+          h('span', {}, 'Aplicar descuentos mayoristas')),
         avisoMayorista(d, prev),
         h('div', { class: 'total' },
           h('div', {}, h('div', { class: 'label' }, 'Total clienta'), h('div', { class: 'num' }, $m(prev.total))),
@@ -432,9 +436,9 @@ function avisoMayorista(d, prev) {
   const e = escalon(d.items), a = db.ajustes;
   if (!d.items.length) return null;
   const msgs = [];
-  if (d.pago === 'tarjeta') msgs.push(`Por transferencia le sale ${e.actual ? `${e.actual.pct}% menos (precio mayorista)` : `${a.transferencia}% menos`}.`);
+  if (d.pago === 'tarjeta') msgs.push(`Por transferencia le sale ${d.mayorista && e.actual ? `${e.actual.pct}% menos (precio mayorista)` : `${a.transferencia}% menos`}.`);
   else prev.lineas.forEach(([txt, m]) => msgs.push(h('div', {}, h('b', {}, txt), ` · ahorra ${$m(m)}`)));
-  if (e.velas && e.siguiente) {
+  if (d.mayorista && e.velas && e.siguiente) {
     const faltan = e.siguiente.desde - e.velas;
     msgs.push(h('div', { class: 'small' }, `Con ${faltan} ${faltan === 1 ? 'vela' : 'velas'} más baja al ${e.siguiente.pct}%.`));
   }
