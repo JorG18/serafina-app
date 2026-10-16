@@ -55,7 +55,7 @@ function toSheet(db) {
     { tab: T.kit, clear: 'A3:C', start: 'A3', rows: kits.flatMap((k) => contar(k.velas).map(([n, c]) => [k.nombre, n, c])) },
     { tab: T.aju, clear: 'A3:B40', start: 'A3', rows: AJUSTES.map(([k, label, pct]) => [label, Number.isFinite(a[k]) ? redondo(pct ? a[k] / 100 : a[k]) : '']) },
     { tab: T.cot, clear: 'A1:I', start: 'A1', rows: [['N.º', 'Fecha', 'Clienta', 'DNI/CUIT', 'Pago', 'Estado', 'Total', 'Le quedó', 'datos de la app (no tocar)'],
-      ...db.cotizaciones.map((c) => [c.num, fecha(c.fecha), c.cliente, c.doc || '', c.pago === 'tarjeta' ? 'Tarjeta' : 'Transferencia', c.estado === 'vendida' ? 'Vendida' : 'Cotización', c.total, Math.round(c.ganancia), JSON.stringify(c)])] },
+      ...db.cotizaciones.map((c) => [c.num, fecha(c.fecha), c.cliente, c.doc || '', ({ tarjeta: 'Tarjeta', contado: 'Contado' })[c.pago] || 'Transferencia', c.estado === 'vendida' ? 'Vendida' : 'Cotización', c.total, Math.round(c.ganancia), JSON.stringify(c)])] },
   ];
 }
 

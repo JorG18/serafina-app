@@ -227,10 +227,10 @@ const quedaFisico = (p) => precioFisico(p) - costo(p).valor;
 // Al guardar, la cotización se queda con los precios y costos de ese día.
 function congelar(c) {
   const e = escalon(c.items);
-  // Por transferencia: las velas llevan el % mayorista si llegan a un escalón (reemplaza al 10%, no se suma);
-  // los kits y los pedidos chicos, el descuento por transferencia. Con tarjeta, precio de lista.
-  const transf = c.pago === 'transfer' ? db.ajustes.transferencia : 0;
-  c.descuento = c.pago === 'transfer' && c.mayorista && e.actual ? e.actual.pct : 0;
+  // Mayorista (si está tildado): las velas llevan el % del escalón pagando por transferencia o contado (reemplaza al 10%, no se suma).
+  // El 10% por transferencia es opcional (casilla). Contado sin mayorista y tarjeta: precio de lista.
+  const transf = c.pago === 'transfer' && c.descTransf ? db.ajustes.transferencia : 0;
+  c.descuento = c.pago !== 'tarjeta' && c.mayorista && e.actual ? e.actual.pct : 0;
   c.items = c.items.map((it) => {
     const p = prod(it.id);
     const desc = p.tipo === 'vela' && c.descuento ? c.descuento : transf;
@@ -409,16 +409,15 @@ function armarCotizacion() {
         field('¿Para quién es?', h('input', { value: d.cliente, placeholder: 'Nombre de la persona o empresa', oninput: (e) => { d.cliente = e.target.value; } })),
         field('DNI, CUIL o CUIT', h('input', { value: d.doc || '', inputmode: 'numeric', placeholder: 'Si te lo pide (no es obligatorio)', oninput: (e) => { d.doc = e.target.value; } })),
         h('div', { class: 'field' }, h('span', {}, '¿Cómo te paga?'),
-          h('div', { class: 'seg' }, [['transfer', 'Transferencia'], ['tarjeta', 'Tarjeta']].map(([v, l]) => h('button', { class: d.pago === v ? 'on' : '', onclick: () => { d.pago = v; render(); } }, l)))),
+          h('div', { class: 'seg' }, [['transfer', 'Transferencia'], ['contado', 'Contado'], ['tarjeta', 'Tarjeta']].map(([v, l]) => h('button', { class: d.pago === v ? 'on' : '', onclick: () => { d.pago = v; render(); } }, l)))),
         h('div', { class: 'list', style: 'margin-top:14px' }, d.items.length
           ? d.items.map((it, n) => h('div', { class: 'tline' },
               h('div', {}, prod(it.id).nombre, h('div', { class: 'muted small num' }, $m(prev.items[n].precio * it.cant),
                 prev.items[n].precio < prev.items[n].lista ? h('s', { style: 'margin-left:8px' }, $m(prev.items[n].lista * it.cant)) : null)),
               stepper(it.cant, (v) => { it.cant = v; if (!v) d.items = d.items.filter((x) => x !== it); render(); })))
           : h('p', { class: 'muted small' }, 'Todavía no sumaste productos.')),
-        h('label', { class: 'field', style: 'display:flex;align-items:center;gap:10px;cursor:pointer' },
-          h('input', { type: 'checkbox', checked: !!d.mayorista, onchange: (e) => { d.mayorista = e.target.checked; render(); } }),
-          h('span', {}, 'Aplicar descuentos mayoristas')),
+        casilla(d, 'mayorista', 'Aplicar descuentos mayoristas'),
+        d.pago === 'transfer' ? casilla(d, 'descTransf', `Aplicar ${db.ajustes.transferencia}% por transferencia`) : null,
         avisoMayorista(d, prev),
         h('div', { class: 'total' },
           h('div', {}, h('div', { class: 'label' }, 'Total clienta'), h('div', { class: 'num' }, $m(prev.total))),
@@ -432,11 +431,13 @@ function armarCotizacion() {
         faltaProducto ? h('p', { class: 'small warn', style: 'margin:10px 0 0' }, 'Sumá al menos un producto tocándolo a la izquierda.') : null)),
   ];
 }
+const casilla = (d, k, txt) => h('label', { class: 'field', style: 'display:flex;align-items:center;gap:10px;cursor:pointer' },
+  h('input', { type: 'checkbox', checked: !!d[k], onchange: (e) => { d[k] = e.target.checked; render(); } }), h('span', {}, txt));
 function avisoMayorista(d, prev) {
   const e = escalon(d.items), a = db.ajustes;
   if (!d.items.length) return null;
   const msgs = [];
-  if (d.pago === 'tarjeta') msgs.push(`Por transferencia le sale ${d.mayorista && e.actual ? `${e.actual.pct}% menos (precio mayorista)` : `${a.transferencia}% menos`}.`);
+  if (d.pago === 'tarjeta' && d.mayorista && e.actual) msgs.push(`Por transferencia o contado le sale ${e.actual.pct}% menos (precio mayorista).`);
   else prev.lineas.forEach(([txt, m]) => msgs.push(h('div', {}, h('b', {}, txt), ` · ahorra ${$m(m)}`)));
   if (d.mayorista && e.velas && e.siguiente) {
     const faltan = e.siguiente.desde - e.velas;
@@ -476,7 +477,7 @@ function documento(c) {
 
 // cotizaciones guardadas antes de que existiera c.lineas
 const lineas = (c) => c.lineas ?? (c.descuento ? [[`Descuento mayorista ${c.descuento}%`, c.subtotal - c.total]] : []);
-const nota = (c) => (c.total < c.subtotal ? 'Precio con descuento válido pagando por transferencia o efectivo. ' : '') + 'Válida por 7 días. Documento no válido como factura.';
+const nota = (c) => (c.total < c.subtotal ? `Precio con descuento válido pagando ${c.descuento ? 'por transferencia o en efectivo' : 'por transferencia'}. ` : '') + 'Válida por 7 días. Documento no válido como factura.';
 
 // ----- PDF del comprobante -----
 const nombrePdf = (c) => `Cotizacion-${String(c.num).padStart(4, '0')}-SERAFINA.pdf`;
@@ -685,7 +686,7 @@ function ajustes() {
       fila('Valor de tu hora', 'Se suma al costo de cada vela.', stepper(a.hora, (v) => { a.hora = v; save(); }, 500, $m)),
       fila('Gastos generales', 'Luz, gas, herramientas. % sobre los insumos.', stepper(a.gastos, (v) => { a.gastos = v; save(); }, 1, (v) => v + '%')),
       fila('Comisión de Pago Nube', 'Solo si pagan con tarjeta. Se le suma IVA.', stepper(a.comision, (v) => { a.comision = v; save(); }, 0.1, (v) => v.toFixed(1) + '%')),
-      fila('Descuento por transferencia', 'Todo el pedido, kits incluidos. Si llega a precio mayorista, las velas llevan ese en vez de este.', stepper(a.transferencia, (v) => { a.transferencia = v; save(); }, 1, (v) => v + '%')),
+      fila('Descuento por transferencia', 'Opcional: se tilda en cada cotización. Todo el pedido, kits incluidos. Si llega a precio mayorista, las velas llevan ese en vez de este.', stepper(a.transferencia, (v) => { a.transferencia = v; save(); }, 1, (v) => v + '%')),
       fila('Descuento venta física', 'Ferias y en persona. Se resta del precio de lista.', stepper(a.fisico, (v) => { a.fisico = v; save(); }, 1, (v) => v + '%')),
       fila('Ganancia mínima', 'Te aviso si un producto deja menos.', stepper(a.objetivo, (v) => { a.objetivo = v; save(); }, 1, (v) => v + '%'))),
     h('div', { class: 'label', style: 'margin:30px 0 12px' }, 'Precio mayorista · solo transferencia o efectivo, sin kits · reemplaza al de transferencia'),
