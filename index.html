@@ -256,6 +256,7 @@ const ICONOS = {
   productos: '<path d="M8.5 10h7v10.5h-7z"/><path d="M12 3.2c1.6 1.9 2.1 3 1.1 4.3-.7.9-2.6.8-2.6-.7 0-1.2.6-2.2 1.5-3.6zM12 7.8V10"/>',
   insumos: '<path d="M8.5 3.5h7v3h-7zM7 6.5h10l1 3v10.5a.5.5 0 0 1-.5.5h-11a.5.5 0 0 1-.5-.5V9.5z"/><path d="M6 12.5h12"/>',
   ajustes: '<path d="M4 7h9M17 7h3M4 12h3M11 12h9M4 17h11M19 17h1"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="17" r="2"/>',
+  formulas: '<path d="M9.5 3.5h5M10.5 3.5v6L5.2 18.6a1.3 1.3 0 0 0 1.1 1.9h11.4a1.3 1.3 0 0 0 1.1-1.9L13.5 9.5v-6"/><path d="M7.5 14.5h9"/>',
   mas: '<path d="M12 5v14M5 12h14"/>', menos: '<path d="M5 12h14"/>', cerrar: '<path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/>',
   ok: '<path d="M5 12.5 10 17l9-10"/>', buscar: '<circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/>',
   alerta: '<path d="M12 4 2.8 19.5h18.4z"/><path d="M12 10v4M12 16.8v.2"/>', flecha: '<path d="M9.5 6l6 6-6 6"/>',
@@ -299,7 +300,7 @@ const field = (label, control, help) => h('label', { class: 'field' }, h('span',
 const pagehead = (titulo, texto, accion) => h('div', { class: 'pagehead' }, h('div', {}, h('h1', {}, titulo), texto ? h('p', { class: 'muted' }, texto) : null), accion || null);
 const stagger = (els) => els.map((el, i) => { if (el && el.style) el.style.setProperty('--i', i); return el; });
 
-const TABS = [['inicio', 'Inicio'], ['cotizar', 'Cotizar'], ['productos', 'Productos'], ['insumos', 'Insumos'], ['ajustes', 'Ajustes']];
+const TABS = [['inicio', 'Inicio'], ['cotizar', 'Cotizar'], ['productos', 'Productos'], ['insumos', 'Insumos'], ['formulas', 'Fórmulas'], ['ajustes', 'Ajustes']];
 function ir(t) { tab = t; animar = true; render(); scrollTo(0, 0); }
 function render() {
   save();
@@ -690,6 +691,87 @@ function editarInsumo(original, nuevo = false) {
   });
 }
 
+// ----- Fórmulas: experimentos de mamá (velas, sprays, sales, lo que sea) -----
+// Una base que se pesa (cera, coco, alcohol, agua, sales…) y esencias en % sobre esa base; la app da los gramos.
+// shortcut: se guardan solo en la tablet (el Apps Script no deja escribir pestañas nuevas); pasarlas a la planilla cuando haya fórmulas definitivas.
+let misFormulas = JSON.parse(localStorage.getItem(KEY + '-formulas') || '[]');
+const guardarFormulas = () => localStorage.setItem(KEY + '-formulas', JSON.stringify(misFormulas));
+const gr = (n) => (Math.round(n * 10) / 10).toLocaleString('es-AR') + ' g';
+const TIPOS = { Vela: 'Ej: cera de soja y aceite de coco', Spray: 'Ej: alcohol y agua destilada', Sal: 'Ej: sal de Epsom, sal marina y bicarbonato', Otro: 'Lo que lleve, en gramos' };
+const pesoBase = (f) => f.base.reduce((s, b) => s + b.g, 0);
+const pctEsencias = (f) => f.esencias.reduce((s, e) => s + e.pct, 0);
+function formulas() {
+  return [
+    pagehead('Fórmulas', 'Tus pruebas. Pesás la base, elegís las esencias y su %, y te digo los gramos.',
+      h('button', { class: 'primary', onclick: () => editarFormula({ id: 'f' + Date.now(), nombre: '', tipo: 'Vela', base: [{ nombre: '', g: 0 }], esencias: [{ nombre: '', pct: 0 }], notas: '' }, true) }, icon('mas'), 'Nueva fórmula')),
+    misFormulas.length
+      ? h('div', { class: 'surface list' }, misFormulas.map((f) => h('div', { class: 'row tap', style: 'grid-template-columns:1fr auto 28px', onclick: () => editarFormula(f) },
+          h('div', {}, h('h3', {}, f.nombre), h('div', { class: 'muted small' }, `${f.tipo} · ${f.fecha} · ${f.esencias.length} esencias al ${Math.round(pctEsencias(f) * 100) / 100}%`)),
+          h('span', { class: 'num' }, gr(pesoBase(f) * (1 + pctEsencias(f) / 100))), icon('flecha'))))
+      : h('div', { class: 'surface empty' }, icon('formulas'), h('h3', {}, 'Todavía no hay fórmulas'), h('p', { class: 'muted small', style: 'margin:0' }, 'Tocá «Nueva fórmula» para armar tu primera prueba.')),
+  ];
+}
+function editarFormula(original, nueva = false) {
+  const f = structuredClone(original);
+  panel(nueva ? 'Nueva fórmula' : original.nombre, (close) => {
+    const err = h('small', { class: 'err' });
+    const nombre = h('input', { value: f.nombre, placeholder: 'Ej: Lavanda prueba 1', oninput: (e) => { f.nombre = e.target.value; nombre.classList.remove('bad'); err.textContent = ''; } });
+    const seg = h('div', { class: 'seg', style: 'grid-template-columns:repeat(4,1fr)' });
+    const ayudaBase = h('small', {});
+    const dibujarSeg = () => { seg.replaceChildren(...Object.keys(TIPOS).map((t) => h('button', { class: f.tipo === t ? 'on' : '', onclick: () => { f.tipo = t; dibujarSeg(); } }, t))); ayudaBase.textContent = TIPOS[f.tipo]; };
+    dibujarSeg();
+    const resumen = h('div', { class: 'surface', style: 'padding:16px 20px;margin-top:22px;font-size:18px' });
+    const gramos = []; // celdas de gramos de cada esencia: se actualizan sin redibujar (no pierde el teclado)
+    const recalcular = () => {
+      const base = pesoBase(f), pct = pctEsencias(f);
+      f.esencias.forEach((e, n) => { if (gramos[n]) gramos[n].textContent = gr(base * e.pct / 100); });
+      resumen.replaceChildren(h('div', {}, 'Base: ', h('b', { class: 'num' }, gr(base))),
+        h('div', {}, 'Esencias: ', h('b', { class: 'num' }, `${gr(base * pct / 100)} (${Math.round(pct * 100) / 100}%)`)),
+        h('div', {}, 'Total: ', h('b', { class: 'num' }, gr(base * (1 + pct / 100)))));
+    };
+    // Insumos ya cargados como sugerencia; si escribe uno que no está, también vale (es una prueba).
+    const sugerir = h('datalist', { id: 'lista-insumos' }, db.insumos.map((i) => h('option', { value: i.nombre })));
+    const nombreInput = (x) => h('input', { list: 'lista-insumos', value: x.nombre, placeholder: 'Elegí o escribí', 'aria-label': 'Insumo', oninput: (e) => { x.nombre = e.target.value; } });
+    const quitar = (lista, n, dibujar) => h('button', { class: 'icon', 'aria-label': 'Quitar', onclick: () => { lista.splice(n, 1); dibujar(); } }, icon('cerrar'));
+    const baseEl = h('div', { class: 'surface list' }), escEl = h('div', { class: 'surface list' });
+    const dibujarBase = () => { baseEl.replaceChildren(
+      ...f.base.map((b, n) => h('div', { class: 'row', style: 'grid-template-columns:1fr 110px 56px;padding:12px 14px' },
+        nombreInput(b), numInput(b.g, (v) => { b.g = v; recalcular(); }, { 'aria-label': 'Gramos', placeholder: 'g' }), quitar(f.base, n, dibujarBase))),
+      h('div', { class: 'row', style: 'padding:12px 14px' }, h('button', { class: 'quiet', onclick: () => { f.base.push({ nombre: '', g: 0 }); dibujarBase(); } }, icon('mas'), 'Agregar a la base')));
+      recalcular(); };
+    const dibujarEsencias = () => { gramos.length = 0; escEl.replaceChildren(
+      ...f.esencias.map((e, n) => h('div', { class: 'row', style: 'grid-template-columns:1fr 84px 76px 56px;padding:12px 14px' },
+        nombreInput(e), numInput(e.pct, (v) => { e.pct = v; recalcular(); }, { step: '0.1', 'aria-label': '%', placeholder: '%' }),
+        gramos[n] = h('b', { class: 'num', style: 'font-size:20px;text-align:right' }), quitar(f.esencias, n, dibujarEsencias))),
+      h('div', { class: 'row', style: 'padding:12px 14px' }, h('button', { class: 'quiet', onclick: () => { f.esencias.push({ nombre: '', pct: 0 }); dibujarEsencias(); } }, icon('mas'), 'Agregar esencia')));
+      recalcular(); };
+    dibujarBase(); dibujarEsencias();
+    const notas = h('textarea', { rows: 3, placeholder: 'Cómo salió: aroma en frío, encendida, si manchó…', style: 'font:inherit;font-size:18px;color:var(--salvia);background:#fff;border:1.5px solid rgba(54,67,58,.16);border-radius:18px;padding:14px 18px;width:100%', oninput: (e) => { f.notas = e.target.value; } }, f.notas);
+    return [
+      h('label', { class: 'field' }, h('span', {}, 'Nombre'), nombre, err),
+      h('div', { class: 'field' }, h('span', {}, '¿Para qué es?'), seg),
+      sugerir,
+      h('div', { class: 'field' }, h('span', {}, 'Base · lo que pesás, en gramos'), ayudaBase), baseEl,
+      h('div', { class: 'field' }, h('span', {}, 'Esencias · % sobre la base'), h('small', {}, 'Ej: en una vela, 8% en total')), escEl,
+      resumen,
+      h('label', { class: 'field' }, h('span', {}, 'Notas'), notas),
+      h('button', { class: 'primary block', style: 'margin-top:26px', onclick: () => {
+        if (!f.nombre.trim()) { nombre.classList.add('bad'); err.textContent = 'Poné un nombre para encontrarla después.'; return nombre.focus(); }
+        f.base = f.base.filter((b) => b.nombre.trim() || b.g); f.esencias = f.esencias.filter((e) => e.nombre.trim() || e.pct);
+        f.fecha = new Date().toLocaleDateString('es-AR');
+        if (nueva) misFormulas.unshift(f); else Object.assign(original, f);
+        guardarFormulas(); close(); aviso(`${f.nombre} guardada.`);
+      } }, 'Guardar'),
+      nueva ? null : h('div', { style: 'display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px' },
+        h('button', { class: 'quiet', onclick: () => { close(); editarFormula({ ...structuredClone(original), id: 'f' + Date.now(), nombre: original.nombre + ' (copia)' }, true); } }, 'Hacer una variante'),
+        h('button', { class: 'quiet', onclick: (e) => {
+          if (e.target.dataset.seguro) { misFormulas = misFormulas.filter((x) => x.id !== original.id); guardarFormulas(); close(); aviso('Fórmula eliminada.'); }
+          else { e.target.dataset.seguro = '1'; e.target.textContent = 'Tocá de nuevo para eliminar'; }
+        } }, 'Eliminar')),
+    ];
+  });
+}
+
 // ----- Ajustes -----
 function ajustes() {
   const a = db.ajustes;
@@ -713,7 +795,7 @@ function ajustes() {
   ];
 }
 
-const VIEWS = { inicio, cotizar, productos, insumos, ajustes };
+const VIEWS = { inicio, cotizar, productos, insumos, formulas, ajustes };
 function pantalla(titulo, texto) {
   document.getElementById('app').replaceChildren(h('div', { class: 'surface empty' }, icon('alerta'), h('h3', {}, titulo), h('p', { class: 'muted small', style: 'margin:0' }, texto)));
 }
