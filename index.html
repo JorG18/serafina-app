@@ -692,22 +692,28 @@ function editarInsumo(original, nuevo = false) {
 }
 
 // ----- Fórmulas: experimentos de mamá (velas, sprays, sales, lo que sea) -----
-// Una base que se pesa (cera, coco, alcohol, agua, sales…) y esencias en % sobre esa base; la app da los gramos.
+// Se elige cuánto tiene que pesar terminado; la base (cera, coco, alcohol, sales…) va en % entre sí y las esencias en % sobre la base.
+// La app despeja: base = peso ÷ (1 + %esencias). Así 120 g al 8% = 111,1 g de base + 8,9 g de esencias.
 // shortcut: se guardan solo en la tablet (el Apps Script no deja escribir pestañas nuevas); pasarlas a la planilla cuando haya fórmulas definitivas.
-let misFormulas = JSON.parse(localStorage.getItem(KEY + '-formulas') || '[]');
+let misFormulas = JSON.parse(localStorage.getItem(KEY + '-formulas') || '[]').map((f) => {
+  if (f.peso) return f; // las primeras pruebas (28/10) tenían la base en gramos: pasarla a %
+  const g = f.base.reduce((s, b) => s + b.g, 0) || 1;
+  return { ...f, peso: Math.round(g * (1 + f.esencias.reduce((s, e) => s + e.pct, 0) / 100) * 10) / 10, base: f.base.map((b) => ({ nombre: b.nombre, pct: Math.round(b.g / g * 1000) / 10 })) };
+});
 const guardarFormulas = () => localStorage.setItem(KEY + '-formulas', JSON.stringify(misFormulas));
 const gr = (n) => (Math.round(n * 10) / 10).toLocaleString('es-AR') + ' g';
-const TIPOS = { Vela: 'Ej: cera de soja y aceite de coco', Spray: 'Ej: alcohol y agua destilada', Sal: 'Ej: sal de Epsom, sal marina y bicarbonato', Otro: 'Lo que lleve, en gramos' };
-const pesoBase = (f) => f.base.reduce((s, b) => s + b.g, 0);
+const TIPOS = { Vela: 'Ej: solo cera 100%, o cera 90% y coco 10%', Spray: 'Ej: alcohol y agua destilada', Sal: 'Ej: sal de Epsom, sal marina y bicarbonato', Otro: 'Lo que lleve, en gramos' };
 const pctEsencias = (f) => f.esencias.reduce((s, e) => s + e.pct, 0);
+const pctBase = (f) => Math.round(f.base.reduce((s, b) => s + b.pct, 0) * 100) / 100;
+const pesoBase = (f) => f.peso / (1 + pctEsencias(f) / 100);
 function formulas() {
   return [
-    pagehead('Fórmulas', 'Tus pruebas. Pesás la base, elegís las esencias y su %, y te digo los gramos.',
-      h('button', { class: 'primary', onclick: () => editarFormula({ id: 'f' + Date.now(), nombre: '', tipo: 'Vela', base: [{ nombre: '', g: 0 }], esencias: [{ nombre: '', pct: 0 }], notas: '' }, true) }, icon('mas'), 'Nueva fórmula')),
+    pagehead('Fórmulas', 'Tus pruebas. Decís cuánto tiene que pesar, ponés los % y te digo cuántos gramos pesar de cada cosa.',
+      h('button', { class: 'primary', onclick: () => editarFormula({ id: 'f' + Date.now(), nombre: '', tipo: 'Vela', peso: 120, base: [{ nombre: 'Cera de soja', pct: 100 }], esencias: [{ nombre: '', pct: 0 }], notas: '' }, true) }, icon('mas'), 'Nueva fórmula')),
     misFormulas.length
       ? h('div', { class: 'surface list' }, misFormulas.map((f) => h('div', { class: 'row tap', style: 'grid-template-columns:1fr auto 28px', onclick: () => editarFormula(f) },
           h('div', {}, h('h3', {}, f.nombre), h('div', { class: 'muted small' }, `${f.tipo} · ${f.fecha} · ${f.esencias.length} esencias al ${Math.round(pctEsencias(f) * 100) / 100}%`)),
-          h('span', { class: 'num' }, gr(pesoBase(f) * (1 + pctEsencias(f) / 100))), icon('flecha'))))
+          h('span', { class: 'num' }, gr(f.peso)), icon('flecha'))))
       : h('div', { class: 'surface empty' }, icon('formulas'), h('h3', {}, 'Todavía no hay fórmulas'), h('p', { class: 'muted small', style: 'margin:0' }, 'Tocá «Nueva fórmula» para armar tu primera prueba.')),
   ];
 }
@@ -721,23 +727,27 @@ function editarFormula(original, nueva = false) {
     const dibujarSeg = () => { seg.replaceChildren(...Object.keys(TIPOS).map((t) => h('button', { class: f.tipo === t ? 'on' : '', onclick: () => { f.tipo = t; dibujarSeg(); } }, t))); ayudaBase.textContent = TIPOS[f.tipo]; };
     dibujarSeg();
     const resumen = h('div', { class: 'surface', style: 'padding:16px 20px;margin-top:22px;font-size:18px' });
-    const gramos = []; // celdas de gramos de cada esencia: se actualizan sin redibujar (no pierde el teclado)
+    const gramos = [], gramosBase = []; // celdas de gramos: se actualizan sin redibujar (no pierde el teclado)
     const recalcular = () => {
-      const base = pesoBase(f), pct = pctEsencias(f);
+      const base = pesoBase(f), pct = pctEsencias(f), suma = pctBase(f);
+      f.base.forEach((b, n) => { if (gramosBase[n]) gramosBase[n].textContent = gr(base * b.pct / 100); });
       f.esencias.forEach((e, n) => { if (gramos[n]) gramos[n].textContent = gr(base * e.pct / 100); });
-      resumen.replaceChildren(h('div', {}, 'Base: ', h('b', { class: 'num' }, gr(base))),
+      resumen.replaceChildren(
+        suma === 100 ? null : h('div', { class: 'warn', style: 'margin-bottom:8px' }, `La base suma ${suma.toLocaleString('es-AR')}%: tiene que dar 100%.`),
+        h('div', {}, 'Base: ', h('b', { class: 'num' }, gr(base))),
         h('div', {}, 'Esencias: ', h('b', { class: 'num' }, `${gr(base * pct / 100)} (${Math.round(pct * 100) / 100}%)`)),
-        h('div', {}, 'Total: ', h('b', { class: 'num' }, gr(base * (1 + pct / 100)))));
+        h('div', {}, 'Terminada pesa: ', h('b', { class: 'num' }, gr(f.peso))));
     };
     // Insumos ya cargados como sugerencia; si escribe uno que no está, también vale (es una prueba).
     const sugerir = h('datalist', { id: 'lista-insumos' }, db.insumos.map((i) => h('option', { value: i.nombre })));
     const nombreInput = (x) => h('input', { list: 'lista-insumos', value: x.nombre, placeholder: 'Elegí o escribí', 'aria-label': 'Insumo', oninput: (e) => { x.nombre = e.target.value; } });
     const quitar = (lista, n, dibujar) => h('button', { class: 'icon', 'aria-label': 'Quitar', onclick: () => { lista.splice(n, 1); dibujar(); } }, icon('cerrar'));
     const baseEl = h('div', { class: 'surface list' }), escEl = h('div', { class: 'surface list' });
-    const dibujarBase = () => { baseEl.replaceChildren(
-      ...f.base.map((b, n) => h('div', { class: 'row', style: 'grid-template-columns:1fr 110px 56px;padding:12px 14px' },
-        nombreInput(b), numInput(b.g, (v) => { b.g = v; recalcular(); }, { 'aria-label': 'Gramos', placeholder: 'g' }), quitar(f.base, n, dibujarBase))),
-      h('div', { class: 'row', style: 'padding:12px 14px' }, h('button', { class: 'quiet', onclick: () => { f.base.push({ nombre: '', g: 0 }); dibujarBase(); } }, icon('mas'), 'Agregar a la base')));
+    const dibujarBase = () => { gramosBase.length = 0; baseEl.replaceChildren(
+      ...f.base.map((b, n) => h('div', { class: 'row', style: 'grid-template-columns:1fr 84px 76px 56px;padding:12px 14px' },
+        nombreInput(b), numInput(b.pct, (v) => { b.pct = v; recalcular(); }, { step: '0.1', 'aria-label': '%', placeholder: '%' }),
+        gramosBase[n] = h('b', { class: 'num', style: 'font-size:20px;text-align:right' }), quitar(f.base, n, dibujarBase))),
+      h('div', { class: 'row', style: 'padding:12px 14px' }, h('button', { class: 'quiet', onclick: () => { f.base.push({ nombre: '', pct: 0 }); dibujarBase(); } }, icon('mas'), 'Agregar a la base')));
       recalcular(); };
     const dibujarEsencias = () => { gramos.length = 0; escEl.replaceChildren(
       ...f.esencias.map((e, n) => h('div', { class: 'row', style: 'grid-template-columns:1fr 84px 76px 56px;padding:12px 14px' },
@@ -751,13 +761,15 @@ function editarFormula(original, nueva = false) {
       h('label', { class: 'field' }, h('span', {}, 'Nombre'), nombre, err),
       h('div', { class: 'field' }, h('span', {}, '¿Para qué es?'), seg),
       sugerir,
-      h('div', { class: 'field' }, h('span', {}, 'Base · lo que pesás, en gramos'), ayudaBase), baseEl,
+      field('¿Cuánto tiene que pesar terminada? (g)', numInput(f.peso, (v) => { f.peso = v; recalcular(); }), 'Sin contar el frasco. Ej: 120'),
+      h('div', { class: 'field' }, h('span', {}, 'Base · % entre ellos, tiene que sumar 100%'), ayudaBase), baseEl,
       h('div', { class: 'field' }, h('span', {}, 'Esencias · % sobre la base'), h('small', {}, 'Ej: en una vela, 8% en total')), escEl,
       resumen,
       h('label', { class: 'field' }, h('span', {}, 'Notas'), notas),
       h('button', { class: 'primary block', style: 'margin-top:26px', onclick: () => {
         if (!f.nombre.trim()) { nombre.classList.add('bad'); err.textContent = 'Poné un nombre para encontrarla después.'; return nombre.focus(); }
-        f.base = f.base.filter((b) => b.nombre.trim() || b.g); f.esencias = f.esencias.filter((e) => e.nombre.trim() || e.pct);
+        f.base = f.base.filter((b) => b.nombre.trim() || b.pct);
+        if (pctBase(f) !== 100) { err.textContent = 'La base tiene que sumar 100% (mirá el resumen).'; return nombre.scrollIntoView(); } f.esencias = f.esencias.filter((e) => e.nombre.trim() || e.pct);
         f.fecha = new Date().toLocaleDateString('es-AR');
         if (nueva) misFormulas.unshift(f); else Object.assign(original, f);
         guardarFormulas(); close(); aviso(`${f.nombre} guardada.`);
