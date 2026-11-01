@@ -788,8 +788,8 @@ function editarFormula(original, nueva = false) {
   });
 }
 
-// ----- Pruebas de aroma a ciegas: 20 gotas para oler, las de 4 y 5 puntos pasan a frasco de 10 ml -----
-// Las recetas vienen cifradas porque el repo es público (ver ../pruebas/armar.js).
+// ----- Pruebas de aroma a ciegas: 20 gotas para oler, las de 4 y 5 puntos pasan a difusor spray de 10 ml -----
+// Las recetas vienen cifradas porque el repo es público (ver ../pruebas/armar.js), ya ordenadas por familia y probabilidad de gustar.
 // shortcut: los puntajes quedan solo en la tablet y son uno por código; pasarlos a la planilla si hace falta votar por persona.
 let recetas = null;
 const puntajes = JSON.parse(localStorage.getItem(KEY + '-pruebas') || '{}');
@@ -809,32 +809,36 @@ function pruebas() {
   const seg = (ops, val, set) => h('div', { class: 'seg' }, ops.map(([id, txt]) => h('button', { class: val === id ? 'on' : '', onclick: () => { set(id); render(); } }, txt)));
   const delTipo = recetas.filter((f) => f.tipo === pruebaTipo);
   const titulo = (f) => h('div', {}, h('b', { class: 'num', style: 'font-size:26px' }, f.cod), destapado ? h('div', { class: 'small' }, f.nombre, f.semi ? ' · con seminatural' : '') : null);
+  const pasosEnOrden = (items) => h('ol', { style: 'margin:0;padding-left:26px;font-size:18px;line-height:1.6' }, items.map((t) => h('li', {}, t)));
+  const gotas = (n) => `${n} ${n === 1 ? 'gota' : 'gotas'}`;
   const puntos = (f) => h('div', { class: 'seg', 'aria-label': `Puntaje del ${f.cod}` }, [1, 2, 3, 4, 5].map((n) =>
     h('button', { class: puntajes[f.cod] === n ? 'on' : '', 'aria-pressed': String(puntajes[f.cod] === n), onclick: () => { if (puntajes[f.cod] === n) delete puntajes[f.cod]; else puntajes[f.cod] = n; localStorage.setItem(KEY + '-pruebas', JSON.stringify(puntajes)); render(); } }, n)));
-  const porTanda = (fila, columnas) => [...new Set(delTipo.map((f) => f.tanda))].map((t) => h('section', { style: 'margin-top:22px' },
-    h('div', { class: 'label', style: 'margin-bottom:10px' }, `Tanda ${t}`),
-    h('div', { class: 'surface list' }, delTipo.filter((f) => f.tanda === t).map((f) => h('div', { class: 'row', style: `grid-template-columns:${columnas}` }, titulo(f), fila(f))))));
+  const porFamilia = (lista, fila, columnas) => [...new Set(lista.map((f) => f.familia))].map((fam) => h('section', { style: 'margin-top:22px' },
+    h('div', { class: 'label', style: 'margin-bottom:10px' }, fam),
+    h('div', { class: 'surface list' }, lista.filter((f) => f.familia === fam).map((f) => h('div', { class: 'row', style: `grid-template-columns:${columnas}` }, titulo(f), fila(f))))));
   const ayuda = (txt) => h('p', { class: 'muted small', style: 'margin:16px 0 0' }, txt);
   const olidas = delTipo.filter((f) => puntajes[f.cod]).length;
-  const elegidas = delTipo.filter((f) => puntajes[f.cod] >= 4).sort((a, b) => puntajes[b.cod] - puntajes[a.cod]);
+  const elegidas = delTipo.filter((f) => puntajes[f.cod] >= 4);
   const pasos = {
     preparar: () => [
-      ayuda('Un frasquito por código y un gotero por esencia. Poné las gotas en este orden y etiquetá solo con el código. Agitá y dejá reposar 48 h. El benjuí es espeso: entibialo antes. Son cantidades aproximadas, alcanzan para oler.'),
-      porTanda((f) => h('div', {}, f.m.map((x) => `${x.e} ${x.gotas}`).join(' · ')), '84px 1fr')],
+      ayuda('Un frasquito por código y un gotero por esencia. Poné las gotas en el orden numerado y etiquetá solo con el código. Agitá y dejá reposar 48 h. El benjuí es espeso: entibialo antes.'),
+      porFamilia(delTipo, (f) => pasosEnOrden(f.m.map((x) => `${x.e} · ${gotas(x.gotas)}`)), '84px 1fr')],
     oler: () => [
-      ayuda(`Mojá una tirita de papel marcada con el código y olela, nunca sobre la piel. Ventilá y descansá entre tandas. Quien preparó no vota, o que otra persona mezcle los frascos antes. 1 no me gusta, 5 me encanta. Van ${olidas} de ${delTipo.length}.`),
-      porTanda(puntos, '84px minmax(0,1fr)')],
-    frascos: () => [
-      ayuda('Las de 4 y 5 puntos. Frasco ámbar de 10 ml sobre la balanza de 0,1 g: tará y sumá cada esencia en este orden. Son 9 g, cerca de 10 ml. Agitá y dejá reposar 48 h. Alcanza para una vela de 120 g al 8%.'),
+      ayuda(`Mojá una tirita de papel marcada con el código y olela, nunca sobre la piel. Descansá y ventilá cada 8. Quien preparó no vota, o que otra persona mezcle los frascos antes. 1 no me gusta, 5 me encanta. Van ${olidas} de ${delTipo.length}.`),
+      porFamilia(delTipo, puntos, '84px minmax(0,1fr)')],
+    difusor: () => [
+      ayuda('Las de 4 y 5 puntos, en un frasco de 10 ml con atomizador y en el orden numerado. Medí con jeringa. Tapá, dejá macerar de 48 a 72 h y filtrá con papel de café. Si se pone turbio, sumá 0,4 g de Tween 20. El alcohol es inflamable: hornalla apagada.'),
       elegidas.length
-        ? h('div', { class: 'surface list', style: 'margin-top:22px' }, elegidas.map((f) => h('div', { class: 'row', style: 'grid-template-columns:minmax(120px,auto) 1fr auto' }, titulo(f),
-            h('div', {}, f.m.map((x) => `${x.e} ${gr(x.g)}`).join(' · ')), h('span', { class: 'pill ok' }, `${puntajes[f.cod]} puntos`))))
+        ? porFamilia(elegidas, (f) => h('div', {},
+            pasosEnOrden(['Alcohol de cereal · 6 ml', `Mezcla del frasco ${f.cod} · 9 gotas`, 'Agua destilada · 3,6 ml, de a poco']),
+            h('p', { class: 'muted small', style: 'margin:8px 0 0' }, `Si se acabó la mezcla, rehacela: ${f.m.map((x) => `${x.e} ${x.gotas}`).join(' → ')}`),
+            h('span', { class: 'pill ok', style: 'margin-top:8px' }, `${puntajes[f.cod]} puntos`)), 'minmax(84px,auto) 1fr')
         : h('div', { class: 'surface empty', style: 'margin-top:22px' }, h('h3', {}, 'Todavía no hay elegidas'), h('p', { class: 'muted small', style: 'margin:0' }, 'Las que saquen 4 o 5 en «Oler» aparecen acá.'))],
   };
   return [
-    pagehead('Pruebas de aroma', 'A ciegas: solo se ve el código hasta que decidan destaparlo.'),
-    seg([['Vela', 'Velas'], ['Spray', 'Sprays'], ['Sal', 'Sales']], pruebaTipo, (v) => { pruebaTipo = v; }),
-    h('div', { style: 'margin-top:12px' }, seg([['preparar', '1. Preparar'], ['oler', '2. Oler'], ['frascos', '3. Frascos 10 ml']], pruebaPaso, (v) => { pruebaPaso = v; })),
+    pagehead('Pruebas de aroma', 'A ciegas: solo se ve el código hasta destaparlo. Por familia, primero lo que más chances tiene de gustar.'),
+    seg([['Vela', 'Velas'], ['Spray', 'Sprays'], ['Sal', 'Sales de baño']], pruebaTipo, (v) => { pruebaTipo = v; }),
+    h('div', { style: 'margin-top:12px' }, seg([['preparar', '1. Preparar'], ['oler', '2. Oler'], ['difusor', '3. Difusor 10 ml']], pruebaPaso, (v) => { pruebaPaso = v; })),
     pasos[pruebaPaso](),
     h('button', { class: 'quiet', style: 'margin-top:26px', onclick: (e) => {
       if (destapado || e.target.dataset.seguro) { destapado = !destapado; render(); }
