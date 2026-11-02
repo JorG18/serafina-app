@@ -72,6 +72,7 @@ input[type=checkbox] { width: 22px; height: 22px; min-height: 0; padding: 0; fle
 .seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; background: var(--lino2); border-radius: 20px; padding: 5px; gap: 5px; }
 .seg button { background: transparent; min-height: 52px; padding: 0 10px; }
 .seg button.on { background: var(--papel); box-shadow: 0 4px 14px -6px rgba(54, 67, 58, .3); }
+@media (max-width: 480px) { .seg.pasos { grid-auto-flow: row; grid-template-columns: 1fr 1fr; } }
 .stepper { display: inline-flex; align-items: center; gap: 6px; background: var(--lino2); border-radius: 99px; padding: 4px; }
 .stepper button { width: 50px; min-height: 50px; padding: 0; border-radius: 50%; background: var(--papel); }
 .stepper b { min-width: 70px; text-align: center; font-size: 20px; font-weight: 400; }
@@ -790,10 +791,12 @@ function editarFormula(original, nueva = false) {
 
 // ----- Pruebas de aroma a ciegas: 20 gotas para oler, las de 4 y 5 puntos pasan a difusor spray de 10 ml -----
 // Las recetas vienen cifradas porque el repo es público (ver ../pruebas/armar.js), ya ordenadas por familia y probabilidad de gustar.
-// shortcut: los puntajes quedan solo en la tablet y son uno por código; pasarlos a la planilla si hace falta votar por persona.
+// shortcut: los votos quedan solo en esta tablet; pasarlos a la planilla si hay que votar desde varios dispositivos.
 let recetas = null;
-const puntajes = JSON.parse(localStorage.getItem(KEY + '-pruebas') || '{}');
-let pruebaTipo = 'Vela', pruebaPaso = 'preparar', destapado = false; // destapado no se guarda: al reabrir vuelve a ciegas
+// Una lista de votos por persona, sin nombres. El guardado viejo (-pruebas, un solo juego de puntajes) pasa a ser la Persona 1.
+const personas = JSON.parse(localStorage.getItem(KEY + '-pruebas-personas') || 'null') || [JSON.parse(localStorage.getItem(KEY + '-pruebas') || '{}')];
+const elegidas = JSON.parse(localStorage.getItem(KEY + '-pruebas-elegidas') || '[]'); // las eligen a mano después de debatir
+let persona = 0, pruebaTipo = 'Vela', pruebaPaso = 'preparar', destapado = false; // destapado no se guarda: al reabrir vuelve a ciegas
 (async () => {
   const llave = localStorage.getItem(KEY + '-llave-pruebas');
   if (!llave) return;
@@ -806,39 +809,60 @@ let pruebaTipo = 'Vela', pruebaPaso = 'preparar', destapado = false; // destapad
 })();
 function pruebas() {
   if (!recetas) return [pagehead('Pruebas de aroma'), h('div', { class: 'surface empty' }, icon('alerta'), h('h3', {}, 'Falta abrir las recetas'), h('p', { class: 'muted small', style: 'margin:0' }, 'Abrí esta pestaña desde el link que te mandó Jorge. Después ya queda guardado.'))];
-  const seg = (ops, val, set) => h('div', { class: 'seg' }, ops.map(([id, txt]) => h('button', { class: val === id ? 'on' : '', onclick: () => { set(id); render(); } }, txt)));
+  const seg = (ops, val, set, clase = 'seg') => h('div', { class: clase }, ops.map(([id, txt]) => h('button', { class: val === id ? 'on' : '', onclick: () => { set(id); render(); } }, txt)));
   const delTipo = recetas.filter((f) => f.tipo === pruebaTipo);
   const titulo = (f) => h('div', {}, h('b', { class: 'num', style: 'font-size:26px' }, f.cod), destapado ? h('div', { class: 'small' }, f.nombre, f.semi ? ' · con seminatural' : '') : null);
   const pasosEnOrden = (items) => h('ol', { style: 'margin:0;padding-left:26px;font-size:18px;line-height:1.6' }, items.map((t) => h('li', {}, t)));
   const gotas = (n) => `${n} ${n === 1 ? 'gota' : 'gotas'}`;
+  const guardarVotos = () => localStorage.setItem(KEY + '-pruebas-personas', JSON.stringify(personas));
+  const votos = personas[persona];
   const puntos = (f) => h('div', { class: 'seg', 'aria-label': `Puntaje del ${f.cod}` }, [1, 2, 3, 4, 5].map((n) =>
-    h('button', { class: puntajes[f.cod] === n ? 'on' : '', 'aria-pressed': String(puntajes[f.cod] === n), onclick: () => { if (puntajes[f.cod] === n) delete puntajes[f.cod]; else puntajes[f.cod] = n; localStorage.setItem(KEY + '-pruebas', JSON.stringify(puntajes)); render(); } }, n)));
+    h('button', { class: votos[f.cod] === n ? 'on' : '', 'aria-pressed': String(votos[f.cod] === n), onclick: () => { if (votos[f.cod] === n) delete votos[f.cod]; else votos[f.cod] = n; guardarVotos(); render(); } }, n)));
   const porFamilia = (lista, fila, columnas) => [...new Set(lista.map((f) => f.familia))].map((fam) => h('section', { style: 'margin-top:22px' },
     h('div', { class: 'label', style: 'margin-bottom:10px' }, fam),
     h('div', { class: 'surface list' }, lista.filter((f) => f.familia === fam).map((f) => h('div', { class: 'row', style: `grid-template-columns:${columnas}` }, titulo(f), fila(f))))));
   const ayuda = (txt) => h('p', { class: 'muted small', style: 'margin:16px 0 0' }, txt);
-  const olidas = delTipo.filter((f) => puntajes[f.cod]).length;
-  const elegidas = delTipo.filter((f) => puntajes[f.cod] >= 4);
+  const olidas = delTipo.filter((f) => votos[f.cod]).length;
+  const ranking = rankingPruebas(delTipo, personas);
+  const paraDifusor = ranking.filter((x) => elegidas.includes(x.f.cod)).map((x) => x.f);
+  const votaron = personas.filter((p) => delTipo.some((f) => p[f.cod])).length;
   const pasos = {
     preparar: () => [
-      ayuda('Un frasquito por código y un gotero por esencia. Poné las gotas en el orden numerado y etiquetá solo con el código. Agitá y dejá reposar 48 h. El benjuí es espeso: entibialo antes.'),
+      ayuda('Por familia, primero lo que más chances tiene de gustar. Un frasquito por código y un gotero por esencia. Poné las gotas en el orden numerado y etiquetá solo con el código. Agitá y dejá reposar 48 h. El benjuí es espeso: entibialo antes.'),
       porFamilia(delTipo, (f) => pasosEnOrden(f.m.map((x) => `${x.e} · ${gotas(x.gotas)}`)), '84px 1fr')],
     oler: () => [
-      ayuda(`Mojá una tirita de papel marcada con el código y olela, nunca sobre la piel. Descansá y ventilá cada 8. Quien preparó no vota, o que otra persona mezcle los frascos antes. 1 no me gusta, 5 me encanta. Van ${olidas} de ${delTipo.length}.`),
-      porFamilia(delTipo, puntos, '84px minmax(0,1fr)')],
+      h('div', { style: 'margin-top:16px' }, seg(personas.map((_, i) => [i, `Persona ${i + 1}`]), persona, (v) => { persona = v; })),
+      h('button', { class: 'quiet', style: 'margin-top:12px', onclick: () => {
+        if (Object.keys(personas[personas.length - 1]).length) { personas.push({}); guardarVotos(); }
+        persona = personas.length - 1; render();
+      } }, 'Sumar otra persona'),
+      ayuda(`Sin nombres: cada una vota con su número y solo ve sus propios puntajes. Mojá una tirita de papel marcada con el código y olela, nunca sobre la piel. Descansá y ventilá cada 8. Quien preparó no vota, o que otra persona mezcle los frascos antes. 1 no me gusta, 5 me encanta. Van ${olidas} de ${delTipo.length}.`),
+      // Por código y sin familias: la familia o el orden de «más probable de gustar» influirían en el voto.
+      h('div', { class: 'surface list', style: 'margin-top:22px' }, [...delTipo].sort((a, b) => a.cod - b.cod).map((f) => h('div', { class: 'row', style: 'grid-template-columns:84px minmax(0,1fr)' }, titulo(f), puntos(f))))],
+    resultados: () => [
+      ayuda(`Abrilo recién cuando hayan votado todas, porque muestra los nombres: ${votaron === 1 ? 'votó 1 persona' : `votaron ${votaron} personas`}. De mayor a menor puntaje, ponderado: cada fórmula arranca con 2 votos de 3 puntos, así un solo 5 no le gana a varias personas que la puntuaron alto. Elijan las que quieran: esas pasan al paso del difusor.`),
+      h('div', { class: 'surface list', style: 'margin-top:22px' }, ranking.map(({ f, puntaje, votos: n }) => {
+        const elegida = elegidas.includes(f.cod);
+        return h('div', { class: 'row', style: 'grid-template-columns:minmax(0,1fr) auto' },
+          h('div', {}, h('h3', {}, f.nombre, f.semi ? ' · con seminatural' : ''), h('div', { class: 'muted small' }, `${f.cod} · ${f.familia}`),
+            n ? h('span', { class: 'pill ok', style: 'margin-top:8px' }, `${puntaje.toFixed(1).replace('.', ',')} puntos · ${n} ${n === 1 ? 'voto' : 'votos'}`) : h('span', { class: 'pill', style: 'margin-top:8px' }, 'Sin votos')),
+          h('button', { class: elegida ? 'primary' : 'quiet', 'aria-pressed': String(elegida), onclick: () => {
+            if (elegida) elegidas.splice(elegidas.indexOf(f.cod), 1); else elegidas.push(f.cod);
+            localStorage.setItem(KEY + '-pruebas-elegidas', JSON.stringify(elegidas)); render();
+          } }, elegida ? 'Elegida' : 'Elegir'));
+      }))],
     difusor: () => [
-      ayuda('Las de 4 y 5 puntos, en un frasco de 10 ml con atomizador y en el orden numerado. Medí con jeringa. Tapá, dejá macerar de 48 a 72 h y filtrá con papel de café. Si se pone turbio, sumá 0,4 g de Tween 20. El alcohol es inflamable: hornalla apagada.'),
-      elegidas.length
-        ? porFamilia(elegidas, (f) => h('div', {},
+      ayuda('Cada una en un frasco de 10 ml con atomizador y en el orden numerado. Medí con jeringa. Tapá, dejá macerar de 48 a 72 h y filtrá con papel de café. Si se pone turbio, sumá 0,4 g de Tween 20. El alcohol es inflamable: hornalla apagada.'),
+      paraDifusor.length
+        ? porFamilia(paraDifusor, (f) => h('div', {},
             pasosEnOrden(['Alcohol de cereal · 6 ml', `Mezcla del frasco ${f.cod} · 9 gotas`, 'Agua destilada · 3,6 ml, de a poco']),
-            h('p', { class: 'muted small', style: 'margin:8px 0 0' }, `Si se acabó la mezcla, rehacela: ${f.m.map((x) => `${x.e} ${x.gotas}`).join(' → ')}`),
-            h('span', { class: 'pill ok', style: 'margin-top:8px' }, `${puntajes[f.cod]} puntos`)), 'minmax(84px,auto) 1fr')
-        : h('div', { class: 'surface empty', style: 'margin-top:22px' }, h('h3', {}, 'Todavía no hay elegidas'), h('p', { class: 'muted small', style: 'margin:0' }, 'Las que saquen 4 o 5 en «Oler» aparecen acá.'))],
+            h('p', { class: 'muted small', style: 'margin:8px 0 0' }, `Si se acabó la mezcla, rehacela: ${f.m.map((x) => `${x.e} ${x.gotas}`).join(' → ')}`)), 'minmax(84px,auto) 1fr')
+        : h('div', { class: 'surface empty', style: 'margin-top:22px' }, h('h3', {}, 'Todavía no hay elegidas'), h('p', { class: 'muted small', style: 'margin:0' }, 'Las que elijan en «Resultados» aparecen acá.'))],
   };
   return [
-    pagehead('Pruebas de aroma', 'A ciegas: solo se ve el código hasta destaparlo. Por familia, primero lo que más chances tiene de gustar.'),
+    pagehead('Pruebas de aroma', 'A ciegas: se huele solo por código. Después se ven los puntajes y eligen entre todos.'),
     seg([['Vela', 'Velas'], ['Spray', 'Sprays'], ['Sal', 'Sales de baño']], pruebaTipo, (v) => { pruebaTipo = v; }),
-    h('div', { style: 'margin-top:12px' }, seg([['preparar', '1. Preparar'], ['oler', '2. Oler'], ['difusor', '3. Difusor 10 ml']], pruebaPaso, (v) => { pruebaPaso = v; })),
+    h('div', { style: 'margin-top:12px' }, seg([['preparar', '1. Preparar'], ['oler', '2. Oler'], ['resultados', '3. Resultados'], ['difusor', '4. Difusor 10 ml']], pruebaPaso, (v) => { pruebaPaso = v; }, 'seg pasos')),
     pasos[pruebaPaso](),
     h('button', { class: 'quiet', style: 'margin-top:26px', onclick: (e) => {
       if (destapado || e.target.dataset.seguro) { destapado = !destapado; render(); }

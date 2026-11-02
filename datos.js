@@ -88,4 +88,13 @@ function comision(total, pago) {
   return total * (a.comision + cuotas) / 100 * (1 + a.iva / 100);
 }
 
-if (typeof module !== 'undefined') module.exports = { fromSheet, toSheet, T, costo, comision };
+// Pruebas de aroma: cada fórmula arranca con 2 votos neutros (de 3 puntos), así un solo 5 no le gana a varias personas que la puntuaron alto.
+// Las que nadie votó van al final: su puntaje neutro no significa nada.
+function rankingPruebas(lista, personas) {
+  return lista.map((f) => {
+    const v = personas.map((p) => p[f.cod]).filter(Boolean);
+    return { f, votos: v.length, puntaje: (v.reduce((a, b) => a + b, 0) + 2 * 3) / (v.length + 2) };
+  }).sort((a, b) => !a.votos - !b.votos || b.puntaje - a.puntaje || b.votos - a.votos);
+}
+
+if (typeof module !== 'undefined') module.exports = { fromSheet, toSheet, T, costo, comision, rankingPruebas };

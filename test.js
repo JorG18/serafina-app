@@ -1,6 +1,11 @@
 // node test.js [fixture.json]  — fixture = valores crudos de la planilla, como los devuelve el Apps Script.
 const assert = require('assert');
-const { fromSheet, toSheet, T, costo, comision } = require('./datos.js');
+const { fromSheet, toSheet, T, costo, comision, rankingPruebas } = require('./datos.js');
+// Cuatro votos altos le ganan a un solo 5; salen todas; las sin votos van últimas aunque otra tenga menos de 3.
+const fx = ['e', 'a', 'b', 'c', 'd'].map((cod) => ({ cod }));
+const gente = [{ a: 5, b: 5, c: 3, d: 1 }, { a: 4 }, { a: 5 }, { a: 4 }];
+assert.deepStrictEqual(rankingPruebas(fx, gente).map((x) => [x.f.cod, x.votos]), [['a', 4], ['b', 1], ['c', 1], ['d', 1], ['e', 0]]);
+assert.strictEqual(rankingPruebas(fx, gente)[0].puntaje, 4);
 const sheet = require(require('path').resolve(process.argv[2] || 'fixture.json'));
 globalThis.db = fromSheet(sheet);
 const p = (n) => db.productos.find((x) => x.nombre === n);
