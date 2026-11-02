@@ -793,10 +793,11 @@ function editarFormula(original, nueva = false) {
 // Las recetas vienen cifradas porque el repo es público (ver ../pruebas/armar.js), ya ordenadas por familia y probabilidad de gustar.
 // shortcut: los votos quedan solo en esta tablet; pasarlos a la planilla si hay que votar desde varios dispositivos.
 let recetas = null;
-// Una lista de votos por persona, sin nombres. El guardado viejo (-pruebas, un solo juego de puntajes) pasa a ser la Persona 1.
+// Una lista de votos por perfil. El nombre sirve solo para encontrar el perfil y queda en esta tablet: Resultados no muestra quién votó qué. El guardado viejo (-pruebas, un solo juego de puntajes) pasa a ser la Persona 1.
 const personas = JSON.parse(localStorage.getItem(KEY + '-pruebas-personas') || 'null') || [JSON.parse(localStorage.getItem(KEY + '-pruebas') || '{}')];
 const elegidas = JSON.parse(localStorage.getItem(KEY + '-pruebas-elegidas') || '[]'); // las eligen a mano después de debatir
-let persona = 0, pruebaTipo = 'Vela', pruebaPaso = 'preparar', destapado = false; // destapado no se guarda: al reabrir vuelve a ciegas
+const nombres = JSON.parse(localStorage.getItem(KEY + '-pruebas-nombres') || '[]'); // misma posición que en personas
+let persona = null, pruebaTipo = 'Vela', pruebaPaso = 'preparar', destapado = false; // destapado no se guarda: al reabrir vuelve a ciegas
 (async () => {
   const llave = localStorage.getItem(KEY + '-llave-pruebas');
   if (!llave) return;
@@ -814,8 +815,36 @@ function pruebas() {
   const titulo = (f) => h('div', {}, h('b', { class: 'num', style: 'font-size:26px' }, f.cod), destapado ? h('div', { class: 'small' }, f.nombre, f.semi ? ' · con seminatural' : '') : null);
   const pasosEnOrden = (items) => h('ol', { style: 'margin:0;padding-left:26px;font-size:18px;line-height:1.6' }, items.map((t) => h('li', {}, t)));
   const gotas = (n) => `${n} ${n === 1 ? 'gota' : 'gotas'}`;
-  const guardarVotos = () => localStorage.setItem(KEY + '-pruebas-personas', JSON.stringify(personas));
-  const votos = personas[persona];
+  const guardarVotos = () => { localStorage.setItem(KEY + '-pruebas-personas', JSON.stringify(personas)); localStorage.setItem(KEY + '-pruebas-nombres', JSON.stringify(nombres)); };
+  const votos = personas[persona] || {};
+  const nombrePersona = (i) => nombres[i] || `Persona ${i + 1}`;
+  const perfiles = () => {
+    const err = h('small', { class: 'err' });
+    const input = h('input', { placeholder: 'Tu nombre', maxlength: 24, 'aria-label': 'Nombre del perfil nuevo', style: 'flex:1;min-width:0', oninput: () => { input.classList.remove('bad'); err.textContent = ''; } });
+    const crear = (e) => {
+      e.preventDefault();
+      const n = input.value.trim();
+      if (!n) { input.classList.add('bad'); err.textContent = 'Escribí un nombre.'; return; }
+      // Si ya existe, entra a ese perfil en vez de duplicarlo. Un perfil sin nombre ni votos se aprovecha.
+      let i = personas.findIndex((_, j) => nombrePersona(j).toLowerCase() === n.toLowerCase());
+      if (i < 0) {
+        i = personas.findIndex((p, j) => !nombres[j] && !Object.keys(p).length);
+        if (i < 0) i = personas.push({}) - 1;
+        nombres[i] = n; guardarVotos();
+      }
+      persona = i; render();
+    };
+    return [
+      h('div', { style: 'display:flex;flex-wrap:wrap;gap:8px;margin-top:16px' }, personas.map((_, i) => h('button', { class: i === persona ? 'primary' : 'quiet', 'aria-pressed': String(i === persona), onclick: () => { persona = i; render(); } }, nombrePersona(i)))),
+      h('form', { style: 'display:flex;gap:8px;margin-top:12px', onsubmit: crear }, input, h('button', { type: 'submit' }, 'Crear perfil')), err,
+      persona === null ? null : h('div', { style: 'display:flex;flex-wrap:wrap;gap:8px;margin-top:12px' },
+        h('button', { class: 'quiet', onclick: () => { persona = null; render(); } }, 'Terminé: cerrar perfil'),
+        h('button', { class: 'quiet', onclick: (e) => {
+          if (!e.target.dataset.seguro) { e.target.dataset.seguro = '1'; e.target.textContent = 'Tocá de nuevo: se borran sus votos'; return; }
+          personas.splice(persona, 1); nombres.splice(persona, 1); persona = null; guardarVotos(); render();
+        } }, 'Borrar este perfil')),
+    ];
+  };
   const puntos = (f) => h('div', { class: 'seg', 'aria-label': `Puntaje del ${f.cod}` }, [1, 2, 3, 4, 5].map((n) =>
     h('button', { class: votos[f.cod] === n ? 'on' : '', 'aria-pressed': String(votos[f.cod] === n), onclick: () => { if (votos[f.cod] === n) delete votos[f.cod]; else votos[f.cod] = n; guardarVotos(); render(); } }, n)));
   const porFamilia = (lista, fila, columnas) => [...new Set(lista.map((f) => f.familia))].map((fam) => h('section', { style: 'margin-top:22px' },
@@ -831,14 +860,10 @@ function pruebas() {
       ayuda('Por familia, primero lo que más chances tiene de gustar. Un frasquito por código y un gotero por esencia. Poné las gotas en el orden numerado y etiquetá solo con el código. Agitá y dejá reposar 48 h. El benjuí es espeso: entibialo antes.'),
       porFamilia(delTipo, (f) => pasosEnOrden(f.m.map((x) => `${x.e} · ${gotas(x.gotas)}`)), '84px 1fr')],
     oler: () => [
-      h('div', { style: 'margin-top:16px' }, seg(personas.map((_, i) => [i, `Persona ${i + 1}`]), persona, (v) => { persona = v; })),
-      h('button', { class: 'quiet', style: 'margin-top:12px', onclick: () => {
-        if (Object.keys(personas[personas.length - 1]).length) { personas.push({}); guardarVotos(); }
-        persona = personas.length - 1; render();
-      } }, 'Sumar otra persona'),
-      ayuda(`Sin nombres: cada una vota con su número y solo ve sus propios puntajes. Mojá una tirita de papel marcada con el código y olela, nunca sobre la piel. Descansá y ventilá cada 8. Quien preparó no vota, o que otra persona mezcle los frascos antes. 1 no me gusta, 5 me encanta. Van ${olidas} de ${delTipo.length}.`),
+      perfiles(),
+      ayuda(`Cada persona entra con su nombre, y en Resultados no aparece quién votó qué. Al terminar, cerrá tu perfil para que la siguiente no vea tus puntajes. Mojá una tirita de papel marcada con el código y olela, nunca sobre la piel. Descansá y ventilá cada 8. Quien preparó no vota, o que otra persona mezcle los frascos antes. 1 no me gusta, 5 me encanta. Van ${olidas} de ${delTipo.length}.`),
       // Por código y sin familias: la familia o el orden de «más probable de gustar» influirían en el voto.
-      h('div', { class: 'surface list', style: 'margin-top:22px' }, [...delTipo].sort((a, b) => a.cod - b.cod).map((f) => h('div', { class: 'row', style: 'grid-template-columns:84px minmax(0,1fr)' }, titulo(f), puntos(f))))],
+      persona === null ? h('div', { class: 'surface empty', style: 'margin-top:22px' }, h('h3', {}, '¿Quién huele?'), h('p', { class: 'muted small', style: 'margin:0' }, 'Tocá tu nombre o creá tu perfil para votar.')) : h('div', { class: 'surface list', style: 'margin-top:22px' }, [...delTipo].sort((a, b) => a.cod - b.cod).map((f) => h('div', { class: 'row', style: 'grid-template-columns:84px minmax(0,1fr)' }, titulo(f), puntos(f))))],
     resultados: () => [
       ayuda(`Abrilo recién cuando hayan votado todas, porque muestra los nombres: ${votaron === 1 ? 'votó 1 persona' : `votaron ${votaron} personas`}. De mayor a menor puntaje, ponderado: cada fórmula arranca con 2 votos de 3 puntos, así un solo 5 no le gana a varias personas que la puntuaron alto. Elijan las que quieran: esas pasan al paso del difusor.`),
       h('div', { class: 'surface list', style: 'margin-top:22px' }, ranking.map(({ f, puntaje, votos: n }) => {
