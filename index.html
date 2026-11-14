@@ -30,7 +30,7 @@ svg.i { width: 24px; height: 24px; flex: none; fill: none; stroke: currentColor;
 
 /* ---- Estructura: riel a la izquierda en tablet, barra abajo en pantallas angostas ---- */
 .shell { display: grid; grid-template-columns: 112px 1fr; min-height: 100dvh; }
-nav.rail { position: sticky; top: 0; height: 100dvh; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 26px 12px; border-right: var(--borde); background: var(--papel); }
+nav.rail { position: sticky; top: 0; height: 100dvh; overflow: hidden auto; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 26px 12px; border-right: var(--borde); background: var(--papel); }
 nav.rail .mark { font-family: Ortica, serif; font-size: 26px; margin-bottom: 26px; }
 nav.rail button { width: 88px; min-height: 76px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; font-size: 14px; border-radius: 22px; background: transparent; color: var(--salvia2); }
 nav.rail button.on { background: var(--salvia); color: var(--lino); }
@@ -267,6 +267,7 @@ const ICONOS = {
   alerta: '<path d="M12 4 2.8 19.5h18.4z"/><path d="M12 10v4M12 16.8v.2"/>', flecha: '<path d="M9.5 6l6 6-6 6"/>',
   whatsapp: '<path d="M4.5 19.5l1.2-3.6A7.8 7.8 0 1 1 8.4 18.4z"/><path d="M9.2 9.3c.2 2.6 2.4 4.8 5.2 5.2l.9-1.3-1.7-.8-.8.8c-1-.4-1.8-1.2-2.2-2.2l.8-.8-.8-1.7z"/>',
   mail: '<rect x="3.5" y="5.5" width="17" height="13" rx="1.5"/><path d="M4 6.5l8 6 8-6"/>',
+  feria: '<path d="M3.5 9.5 5 4.5h14l1.5 5"/><path d="M3.5 9.5a2.8 2.8 0 0 0 5.67 0 2.8 2.8 0 0 0 5.66 0 2.8 2.8 0 0 0 5.67 0"/><path d="M5 12v8.5h14V12M10 20.5v-5h4v5"/>',
   pdf: '<path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 19.5h14"/>', vacio: '<path d="M6.5 3.5h11v17l-2.75-1.8L12 20.5l-2.75-1.8-2.75 1.8z"/><path d="M10 10.5h4"/>',
 };
 const icon = (n) => { const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); s.setAttribute('viewBox', '0 0 24 24'); s.setAttribute('class', 'i'); s.setAttribute('aria-hidden', 'true'); s.innerHTML = ICONOS[n]; return s; };
@@ -305,7 +306,7 @@ const field = (label, control, help) => h('label', { class: 'field' }, h('span',
 const pagehead = (titulo, texto, accion) => h('div', { class: 'pagehead' }, h('div', {}, h('h1', {}, titulo), texto ? h('p', { class: 'muted' }, texto) : null), accion || null);
 const stagger = (els) => els.map((el, i) => { if (el && el.style) el.style.setProperty('--i', i); return el; });
 
-const TABS = [['inicio', 'Inicio'], ['cotizar', 'Cotizar'], ['productos', 'Productos'], ['insumos', 'Insumos'], ['formulas', 'Fórmulas'], ['pruebas', 'Pruebas'], ['ajustes', 'Ajustes']];
+const TABS = [['inicio', 'Inicio'], ['feria', 'Feria'], ['cotizar', 'Cotizar'], ['productos', 'Productos'], ['insumos', 'Insumos'], ['formulas', 'Fórmulas'], ['pruebas', 'Pruebas'], ['ajustes', 'Ajustes']];
 function ir(t) { tab = t; animar = true; render(); scrollTo(0, 0); }
 function render() {
   save();
@@ -390,7 +391,7 @@ function filaCotizacion(c) {
     h('div', { style: 'text-align:right' }, h('div', { class: 'num', style: 'font-size:26px' }, $m(c.total)), h('div', { class: 'muted small' }, `te queda ${$m(c.ganancia)}`)),
     h('div', { style: 'display:flex;gap:8px' },
       h('button', { class: 'quiet', onclick: () => comprobante(c) }, 'Ver'),
-      h('button', { class: 'quiet', onclick: () => editarCotizacion(c) }, 'Editar'),
+      c.feria ? null : h('button', { class: 'quiet', onclick: () => editarCotizacion(c) }, 'Editar'), // editar recalcularía y pisaría los precios de feria
       h('button', { class: 'quiet', onclick: () => { porBorrar = c.id; render(); } }, 'Eliminar'),
       vendida
         ? h('button', { class: 'quiet', onclick: () => { c.estado = 'cotizacion'; render(); } }, 'Deshacer')
@@ -571,6 +572,86 @@ async function mandar(c) {
   const file = new File([blob], nombrePdf(c), { type: 'application/pdf' });
   if (!navigator.canShare?.({ files: [file] })) return descargar(blob, file.name);
   try { await navigator.share({ files: [file], title: 'Cotización SERAFINA' }); } catch (e) { if (e.name !== 'AbortError') descargar(blob, file.name); }
+}
+
+// ----- Feria: caja rápida. Cada venta se guarda como venta concretada (sube a la planilla y cuenta en Inicio). -----
+let caja = { pago: 'contado', items: [] }; // items: { id, nombre, precio, costo, cant }
+let otro = null; // producto suelto que se está escribiendo { nombre, precio }
+const PAGOS = [['contado', 'Efectivo'], ['transfer', 'Transferencia'], ['tarjeta', 'Tarjeta']];
+const hoy = (f) => new Date(f).toDateString() === new Date().toDateString();
+function sumarCaja(p) {
+  const it = caja.items.find((x) => x.id === p.id);
+  if (it) it.cant++; else caja.items.push({ id: p.id, nombre: p.nombre, precio: precioFisico(p), costo: costo(p).valor, cant: 1 });
+  render();
+}
+function feria() {
+  const total = () => caja.items.reduce((s, it) => s + it.precio * it.cant, 0);
+  const cobrar = h('div', { class: 'num' }, $m(total()));
+  const ventas = db.cotizaciones.filter((c) => c.feria && hoy(c.fecha)).reverse();
+  const tot = (l) => l.reduce((s, c) => s + c.total, 0);
+  const card = (p) => {
+    const it = caja.items.find((x) => x.id === p.id);
+    return h('button', { class: it ? 'in' : '', onclick: () => sumarCaja(p) },
+      h('span', {}, p.nombre), h('span', { class: 'muted small num' }, $m(precioFisico(p))), it ? h('span', { class: 'pill ok q' }, `× ${it.cant}`) : null);
+  };
+  return [
+    pagehead('Feria', `Tocá lo que vendés (precio físico −${db.ajustes.fisico}%). El precio se puede cambiar en la venta.`),
+    h('div', { class: 'builder' },
+      h('div', {},
+        h('div', { class: 'label', style: 'margin-bottom:10px' }, 'Velas'), h('div', { class: 'picker' }, db.productos.filter((p) => p.tipo === 'vela').map(card)),
+        h('div', { class: 'label', style: 'margin:22px 0 10px' }, 'Kits'), h('div', { class: 'picker' }, db.productos.filter((p) => p.tipo === 'kit').map(card)),
+        h('div', { class: 'label', style: 'margin:22px 0 10px' }, 'Otro producto'),
+        otro
+          ? h('div', { class: 'surface pad' },
+              field('¿Qué es?', h('input', { value: otro.nombre, placeholder: 'Ej: Vela de regalo', oninput: (e) => { otro.nombre = e.target.value; } })),
+              field('Precio', numInput(otro.precio, (v) => { otro.precio = v; })),
+              h('div', { class: 'actions' },
+                h('button', { class: 'quiet', onclick: () => { otro = null; render(); } }, 'Cancelar'),
+                h('button', { class: 'primary', onclick: () => {
+                  if (!otro.nombre.trim() || !otro.precio) return aviso('Poné nombre y precio.');
+                  caja.items.push({ id: 'x' + Date.now(), nombre: otro.nombre.trim(), precio: otro.precio, costo: 0, cant: 1 }); otro = null; render();
+                } }, 'Sumar')))
+          : h('button', { class: 'quiet block', onclick: () => { otro = { nombre: '', precio: 0 }; render(); } }, icon('mas'), 'Agregar otro producto')),
+      h('div', { class: 'surface pad ticket' },
+        h('div', { class: 'label' }, 'Venta'),
+        h('div', { class: 'list', style: 'margin-top:8px' }, caja.items.length
+          ? caja.items.map((it) => {
+              const sub = h('div', { class: 'muted small num' }, $m(it.precio * it.cant));
+              // sin render: redibujar al salir del campo se comería el toque en «Vender»
+              return h('div', { class: 'tline', style: 'grid-template-columns:minmax(0,1fr) auto' },
+              h('div', { style: 'grid-column:1/-1;display:flex;justify-content:space-between;gap:12px' }, it.nombre, sub),
+              numInput(it.precio, (v) => { it.precio = v; sub.textContent = $m(v * it.cant); cobrar.textContent = $m(total()); },
+                { 'aria-label': `Precio de ${it.nombre}`, style: 'min-height:50px;font-size:18px;padding:0 10px' }),
+              stepper(it.cant, (v) => { it.cant = v; if (!v) caja.items = caja.items.filter((x) => x !== it); render(); })); })
+          : h('p', { class: 'muted small' }, 'Tocá los productos de la izquierda.')),
+        h('div', { class: 'field' }, h('span', {}, '¿Cómo te paga?'),
+          h('div', { class: 'seg' }, PAGOS.map(([v, l]) => h('button', { class: caja.pago === v ? 'on' : '', onclick: () => { caja.pago = v; render(); } }, l)))),
+        h('div', { class: 'total' }, h('div', {}, h('div', { class: 'label' }, 'Cobrar'), cobrar)),
+        h('button', { class: 'primary block', style: 'margin-top:14px', disabled: !caja.items.length || null, onclick: () => {
+          const items = caja.items.filter((it) => it.cant > 0).map((it) => ({ ...it, lista: it.precio, desc: 0 }));
+          const t = items.reduce((s, it) => s + it.precio * it.cant, 0);
+          db.cotizaciones.push({ id: Date.now(), num: Math.max(0, ...db.cotizaciones.map((c) => c.num)) + 1, fecha: new Date().toISOString(), estado: 'vendida', feria: true,
+            cliente: 'Feria', pago: caja.pago, items, lineas: [], descuento: 0, sena: 0, subtotal: t, total: t,
+            ganancia: t - items.reduce((s, it) => s + it.costo * it.cant, 0) - comision(t, caja.pago) });
+          caja = { pago: caja.pago, items: [] }; render(); aviso(`Venta de ${$m(t)} anotada.`);
+        } }, icon('ok'), 'Vender'))),
+    h('div', { class: 'label', style: 'margin:30px 0 12px' }, 'Cuenta de hoy'),
+    h('div', { class: 'surface pad' },
+      h('div', { class: 'summary' },
+        h('div', {}, h('div', { class: 'label' }, `Vendiste · ${ventas.length} ${ventas.length === 1 ? 'venta' : 'ventas'}`), h('div', { class: 'num' }, $m(tot(ventas)))),
+        h('div', { style: 'text-align:right' }, h('div', { class: 'label' }, 'Te queda'), h('div', { class: 'num' }, $m(ventas.reduce((s, c) => s + c.ganancia, 0))))),
+      h('div', { style: 'display:flex;gap:10px;flex-wrap:wrap;margin:12px 0' },
+        PAGOS.map(([v, l]) => h('span', { class: 'pill' }, `${l}: ${$m(tot(ventas.filter((c) => c.pago === v)))}`)),
+        h('span', { class: 'pill' }, `${ventas.reduce((s, c) => s + c.items.reduce((a, it) => a + it.cant, 0), 0)} productos`)),
+      ventas.length ? h('div', { class: 'list' }, ventas.map((c) => h('div', { class: 'tline', style: 'grid-template-columns:1fr auto auto' },
+        h('div', {}, c.items.map((it) => `${it.cant} × ${it.nombre}`).join(', '),
+          h('div', { class: 'muted small' }, `${new Date(c.fecha).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })} · ${PAGOS.find(([v]) => v === c.pago)[1]}`)),
+        h('span', { class: 'num' }, $m(c.total)),
+        porBorrar === c.id
+          ? h('button', { class: 'primary', style: 'background:var(--alerta)', onclick: () => { db.cotizaciones = db.cotizaciones.filter((x) => x !== c); porBorrar = null; render(); aviso('Venta borrada.'); } }, '¿Borrar?')
+          : h('button', { class: 'icon quiet', 'aria-label': 'Borrar venta', onclick: () => { porBorrar = c.id; render(); } }, icon('cerrar')))))
+        : h('p', { class: 'muted small', style: 'margin:0' }, 'Todavía no vendiste nada hoy.')),
+  ];
 }
 
 // ----- Productos -----
@@ -919,7 +1000,7 @@ function ajustes() {
   ];
 }
 
-const VIEWS = { inicio, cotizar, productos, insumos, formulas, pruebas, ajustes };
+const VIEWS = { inicio, feria, cotizar, productos, insumos, formulas, pruebas, ajustes };
 function pantalla(titulo, texto) {
   document.getElementById('app').replaceChildren(h('div', { class: 'surface empty' }, icon('alerta'), h('h3', {}, titulo), h('p', { class: 'muted small', style: 'margin:0' }, texto)));
 }
