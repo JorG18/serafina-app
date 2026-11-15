@@ -794,9 +794,9 @@ function editarInsumo(original, nuevo = false) {
 // Velas: las recetas probadas daban la esencia «sobre la cera» (8 %); acá es sobre el total: 8 ÷ 108 = 7,4 %, misma intensidad.
 // Las velas que ya se venden (Alegría, Fuego) toman su % de su propia receta en Productos: esencias ÷ (cera + esencias).
 const PRESENTACIONES = {
-  // Spray: el frasco se llena por volumen (ml) pero se pesa todo en la balanza: cada parte se pasa a gramos con su densidad.
+  // Spray al 3 %: lo aprobado en el difusor de 10 ml (9 gotas de ~0,03 g = 0,27 g). El frasco se llena por volumen (ml) pero se pesa todo en la balanza: cada parte se pasa a gramos con su densidad.
   // shortcut: densidades típicas (alcohol 96° 0,81; agua 1; esencias ~0,9); si cambia el alcohol, ajustar acá.
-  spray: { nombre: 'Spray', u: 'ml', tamanos: [100], carga: 4, base: [['Alcohol', 62.5], ['Agua destilada', 37.5]], dens: { Alcohol: 0.81, 'Agua destilada': 1, esencia: 0.9 } },
+  spray: { nombre: 'Spray', u: 'ml', tamanos: [100], carga: 3, base: [['Alcohol', 62.5], ['Agua destilada', 37.5]], dens: { Alcohol: 0.81, 'Agua destilada': 1, esencia: 0.9 } },
   vela: { nombre: 'Vela aromática', u: 'g', tamanos: [100, 220], carga: 7.4, base: [['Cera de soja', 100]] },
   masaje: { nombre: 'Vela de masaje', u: 'g', tamanos: [90], carga: 3.5, base: [['Cera de soja', 78], ['Aceite de coco', 22]] },
 };
