@@ -71,6 +71,7 @@ input.bad { border-color: var(--alerta); }
 input[type=checkbox] { width: 22px; height: 22px; min-height: 0; padding: 0; flex: none; accent-color: var(--salvia); }
 .seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; background: var(--lino2); border-radius: 20px; padding: 5px; gap: 5px; }
 .seg button { background: transparent; min-height: 52px; padding: 0 10px; }
+.subtabs { max-width: 620px; margin-bottom: 26px; }
 .seg button.on { background: var(--papel); box-shadow: 0 4px 14px -6px rgba(54, 67, 58, .3); }
 @media (max-width: 480px) { .seg.pasos { grid-auto-flow: row; grid-template-columns: 1fr 1fr; } }
 .stepper { display: inline-flex; align-items: center; gap: 6px; background: var(--lino2); border-radius: 99px; padding: 4px; }
@@ -268,6 +269,7 @@ const ICONOS = {
   whatsapp: '<path d="M4.5 19.5l1.2-3.6A7.8 7.8 0 1 1 8.4 18.4z"/><path d="M9.2 9.3c.2 2.6 2.4 4.8 5.2 5.2l.9-1.3-1.7-.8-.8.8c-1-.4-1.8-1.2-2.2-2.2l.8-.8-.8-1.7z"/>',
   mail: '<rect x="3.5" y="5.5" width="17" height="13" rx="1.5"/><path d="M4 6.5l8 6 8-6"/>',
   feria: '<path d="M3.5 9.5 5 4.5h14l1.5 5"/><path d="M3.5 9.5a2.8 2.8 0 0 0 5.67 0 2.8 2.8 0 0 0 5.66 0 2.8 2.8 0 0 0 5.67 0"/><path d="M5 12v8.5h14V12M10 20.5v-5h4v5"/>',
+  costos: '<rect x="5.5" y="3.5" width="13" height="17" rx="2"/><path d="M8.5 7.5h7M9 12h.01M12 12h.01M15 12h.01M9 15.5h.01M12 15.5h.01M15 15.5h.01"/>',
   pdf: '<path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 19.5h14"/>', vacio: '<path d="M6.5 3.5h11v17l-2.75-1.8L12 20.5l-2.75-1.8-2.75 1.8z"/><path d="M10 10.5h4"/>',
 };
 const icon = (n) => { const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); s.setAttribute('viewBox', '0 0 24 24'); s.setAttribute('class', 'i'); s.setAttribute('aria-hidden', 'true'); s.innerHTML = ICONOS[n]; return s; };
@@ -306,15 +308,24 @@ const field = (label, control, help) => h('label', { class: 'field' }, h('span',
 const pagehead = (titulo, texto, accion) => h('div', { class: 'pagehead' }, h('div', {}, h('h1', {}, titulo), texto ? h('p', { class: 'muted' }, texto) : null), accion || null);
 const stagger = (els) => els.map((el, i) => { if (el && el.style) el.style.setProperty('--i', i); return el; });
 
-const TABS = [['inicio', 'Inicio'], ['feria', 'Feria'], ['cotizar', 'Cotizar'], ['productos', 'Productos'], ['insumos', 'Insumos'], ['formulas', 'Fórmulas'], ['pruebas', 'Pruebas'], ['ajustes', 'Ajustes']];
+// 4 botones en el riel; adentro de cada uno, las pestañas que se usan en el mismo momento (vender, hacer cuentas, fabricar).
+const GRUPOS = [['inicio', 'Inicio', 'inicio', [['inicio', 'Inicio']]],
+  ['vender', 'Vender', 'feria', [['feria', 'Feria'], ['cotizar', 'Cotizar']]],
+  ['costos', 'Costos', 'costos', [['productos', 'Productos'], ['insumos', 'Insumos'], ['ajustes', 'Ajustes']]],
+  ['taller', 'Taller', 'formulas', [['producir', 'Producir'], ['formulas', 'Mis fórmulas'], ['pruebas', 'Pruebas de aroma']]]];
+const ultima = {}; // al volver a un grupo, abre la pestaña que estaba usando
 function ir(t) { tab = t; animar = true; render(); scrollTo(0, 0); }
 function render() {
   save();
-  document.getElementById('rail').replaceChildren(h('div', { class: 'mark', 'aria-hidden': 'true' }, 'S'), ...TABS.map(([id, label]) =>
-    h('button', { class: tab === id ? 'on' : '', onclick: () => ir(id), 'aria-current': tab === id ? 'page' : null }, icon(id), label)));
+  const grupo = GRUPOS.find((g) => g[3].some(([id]) => id === tab));
+  ultima[grupo[0]] = tab;
+  document.getElementById('rail').replaceChildren(h('div', { class: 'mark', 'aria-hidden': 'true' }, 'S'), ...GRUPOS.map((g) =>
+    h('button', { class: g === grupo ? 'on' : '', onclick: () => ir(ultima[g[0]] || g[3][0][0]), 'aria-current': g === grupo ? 'page' : null }, icon(g[2]), g[1])));
   const app = document.getElementById('app');
   app.className = animar ? 'anim' : '';
-  app.replaceChildren(...stagger(VIEWS[tab]().flat()));
+  const subs = grupo[3].length > 1 ? h('div', { class: 'seg subtabs' }, grupo[3].map(([id, label]) =>
+    h('button', { class: tab === id ? 'on' : '', onclick: () => ir(id), 'aria-current': tab === id ? 'page' : null }, label))) : null;
+  app.replaceChildren(...stagger([subs, ...VIEWS[tab]().flat()]));
   animar = false;
 }
 
@@ -777,6 +788,69 @@ function editarInsumo(original, nuevo = false) {
   });
 }
 
+// ----- Producir: las fórmulas definitivas, para N unidades del tamaño que elija -----
+// El tamaño es el producto terminado con la esencia adentro (ver producir() en datos.js).
+// Las mezclas salen de las recetas cifradas (por código de la prueba elegida) o, para las velas que ya se venden, de Productos (planilla).
+// Velas: las recetas probadas daban la esencia «sobre la cera» (8 %); acá es sobre el total: 8 ÷ 108 = 7,4 %, misma intensidad.
+// Las velas que ya se venden (Alegría, Fuego) toman su % de su propia receta en Productos: esencias ÷ (cera + esencias).
+const PRESENTACIONES = {
+  // Spray: el frasco se llena por volumen (ml) pero se pesa todo en la balanza: cada parte se pasa a gramos con su densidad.
+  // shortcut: densidades típicas (alcohol 96° 0,81; agua 1; esencias ~0,9); si cambia el alcohol, ajustar acá.
+  spray: { nombre: 'Spray', u: 'ml', tamanos: [100], carga: 4, base: [['Alcohol', 62.5], ['Agua destilada', 37.5]], dens: { Alcohol: 0.81, 'Agua destilada': 1, esencia: 0.9 } },
+  vela: { nombre: 'Vela aromática', u: 'g', tamanos: [100, 220], carga: 7.4, base: [['Cera de soja', 100]] },
+  masaje: { nombre: 'Vela de masaje', u: 'g', tamanos: [90], carga: 3.5, base: [['Cera de soja', 78], ['Aceite de coco', 22]] },
+};
+const AROMAS = [
+  { nombre: 'Amor de Verano', cod: 363, en: ['spray', 'vela', 'masaje'] }, { nombre: 'La Quinta', cod: 964, en: ['spray', 'vela', 'masaje'] },
+  { nombre: 'Brisa de Noviembre', cod: 158, en: ['spray', 'vela', 'masaje'], sin: ['petitgrain'] }, { nombre: 'Al-Ándalus', cod: 737, en: ['spray', 'vela'] },
+  { nombre: 'Canelón', cod: 827, en: ['spray', 'vela'] }, { nombre: 'Miel de Árbol', cod: 786, en: ['spray'] },
+  { nombre: 'Alegría Botánica', en: ['spray', 'vela'] }, { nombre: 'Fuego Sagrado', en: ['spray', 'vela'] },
+];
+const hacer = { tipo: 'spray', aroma: 'Amor de Verano', tam: 100, unidades: 1, carga: null }; // carga null = la de la presentación
+function mezclaDe(a) {
+  if (a.cod) return recetas?.find((f) => f.cod === a.cod)?.m.filter((m) => !a.sin?.includes(m.e)).map((m) => ({ e: m.e, p: m.gotas })) || null;
+  const m = (prodByName(a.nombre)?.receta || []).filter((r) => /^esencia/i.test(r.ins)).map((r) => ({ e: r.ins.replace(/^esencia de /i, ''), p: r.cant }));
+  return m.length ? m : null;
+}
+function producirVista() {
+  const t = PRESENTACIONES[hacer.tipo], aromas = AROMAS.filter((a) => a.en.includes(hacer.tipo));
+  const a = aromas.find((x) => x.nombre === hacer.aroma) || aromas[0]; hacer.aroma = a.nombre;
+  const receta = !a.cod && hacer.tipo === 'vela' ? prodByName(a.nombre)?.receta || [] : [];
+  const sum = (re) => receta.filter((r) => re.test(r.ins)).reduce((s, r) => s + r.cant, 0), esc = sum(/^esencia/i), cera = sum(/^cera/i);
+  const carga = hacer.carga ?? (esc && cera ? Math.round(esc / (esc + cera) * 1000) / 10 : t.carga), mezcla = mezclaDe(a);
+  const fmt = (n, u) => (Math.round(n * 10) / 10).toLocaleString('es-AR') + ' ' + u, cant = (n) => fmt(n, t.u);
+  const g = (v, d = 1) => fmt(v * d, 'g'), dE = t.dens?.esencia || 1; // todo sale en gramos: se pesa en la balanza
+  const mayus = (x) => x[0].toUpperCase() + x.slice(1);
+  const linea = (n, v, d) => h('div', { class: 'tline' }, h('span', {}, mayus(n)), h('b', { class: 'num', style: 'font-size:21px;font-weight:400' }, g(v, d)));
+  const r = mezcla && producir(t.base, carga, hacer.tam, hacer.unidades, mezcla);
+  const otro = h('input', { type: 'number', inputmode: 'decimal', min: 1, value: t.tamanos.includes(hacer.tam) ? '' : hacer.tam, placeholder: 'Otro', 'aria-label': `Otro tamaño en ${t.u}`, style: 'max-width:150px',
+    onchange: (e) => { const v = Number(e.target.value); if (v > 0) { hacer.tam = v; render(); } } });
+  return [
+    pagehead('Producir', `Elegí qué vas a hacer y cuántas. El tamaño es el producto terminado con la esencia adentro: nunca se pasa del envase.`),
+    h('div', { class: 'builder' },
+      h('div', {},
+        h('div', { class: 'label', style: 'margin-bottom:10px' }, 'Qué vas a hacer'),
+        h('div', { class: 'seg' }, Object.entries(PRESENTACIONES).map(([id, p]) => h('button', { class: hacer.tipo === id ? 'on' : '', onclick: () => { hacer.tipo = id; hacer.tam = p.tamanos[0]; hacer.carga = null; render(); } }, p.nombre))),
+        h('div', { class: 'label', style: 'margin:26px 0 10px' }, 'Aroma'),
+        h('div', { class: 'picker', style: 'grid-template-columns:repeat(auto-fill,minmax(150px,1fr))' }, aromas.map((x) => h('button', { class: x === a ? 'in' : '', style: 'min-height:64px;justify-content:center', onclick: () => { hacer.aroma = x.nombre; hacer.carga = null; render(); } }, h('span', {}, x.nombre)))),
+        h('div', { class: 'label', style: 'margin:26px 0 10px' }, `Tamaño de cada una (${t.u})`),
+        h('div', { style: 'display:flex;gap:12px;flex-wrap:wrap;align-items:center' },
+          h('div', { class: 'seg', style: 'flex:0 1 auto' }, t.tamanos.map((n) => h('button', { class: hacer.tam === n ? 'on' : '', onclick: () => { hacer.tam = n; render(); } }, `${n} ${t.u}`))), otro),
+        h('div', { style: 'display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:18px;margin-top:26px' },
+          h('div', {}, h('div', { class: 'label', style: 'margin-bottom:10px' }, 'Unidades'), stepper(hacer.unidades, (v) => { hacer.unidades = v; render(); }, 1, (v) => v, 1)),
+          h('div', {}, h('div', { class: 'label', style: 'margin-bottom:10px' }, 'Esencia'), stepper(carga, (v) => { hacer.carga = v; render(); }, 0.5, (v) => v.toLocaleString('es-AR') + ' %')))),
+      h('div', { class: 'surface pad ticket' },
+        h('div', { class: 'label' }, `${hacer.unidades} × ${t.nombre} ${a.nombre}`),
+        !r ? h('div', { class: 'empty', style: 'padding:22px 0 4px' }, icon('alerta'), h('h3', {}, 'Falta la mezcla de esencias'),
+          h('p', { class: 'muted small', style: 'margin:0' }, a.cod ? 'Abrí la app una vez desde el link de las recetas que te mandó Jorge.' : `Cargá las esencias de ${a.nombre} en Costos → Productos y aparece acá.`))
+        : [h('div', { class: 'list', style: 'margin-top:8px' }, r.base.map(([n, v]) => linea(n, v, t.dens?.[n]))),
+          h('div', { class: 'label', style: 'margin:18px 0 0' }, `Esencias · ${g(r.esencia, dE)}`),
+          h('div', { class: 'list' }, r.esencias.map(([n, v]) => linea(n, v, dE))),
+          h('div', { class: 'total' }, h('div', {}, h('div', { class: 'label' }, 'Total'), h('div', { class: 'num' }, g(r.base.reduce((s, [n, v]) => s + v * (t.dens?.[n] || 1), 0) + r.esencia * dE))),
+            h('div', {}, h('div', { class: 'label' }, 'Cada una'), h('div', { class: 'num' }, cant(hacer.tam))))])),
+  ];
+}
+
 // ----- Fórmulas: experimentos de mamá (velas, sprays, sales, lo que sea) -----
 // Se elige cuánto tiene que pesar terminado; la base (cera, coco, alcohol, sales…) va en % entre sí y las esencias en % sobre la base.
 // La app despeja: base = peso ÷ (1 + %esencias). Así 120 g al 8% = 111,1 g de base + 8,9 g de esencias.
@@ -887,7 +961,7 @@ let persona = null, pruebaTipo = 'Vela', pruebaPaso = 'preparar', destapado = fa
     const k = await crypto.subtle.importKey('raw', Uint8Array.from(llave.match(/../g), (x) => parseInt(x, 16)), 'AES-GCM', false, ['decrypt']);
     recetas = JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bytes(PRUEBAS_CIFRADAS.iv) }, k, bytes(PRUEBAS_CIFRADAS.ct))));
   } catch { return; }
-  if (tab === 'pruebas') render();
+  if (tab === 'pruebas' || tab === 'producir') render();
 })();
 function pruebas() {
   if (!recetas) return [pagehead('Pruebas de aroma'), h('div', { class: 'surface empty' }, icon('alerta'), h('h3', {}, 'Falta abrir las recetas'), h('p', { class: 'muted small', style: 'margin:0' }, 'Abrí esta pestaña desde el link que te mandó Jorge. Después ya queda guardado.'))];
@@ -1000,7 +1074,7 @@ function ajustes() {
   ];
 }
 
-const VIEWS = { inicio, feria, cotizar, productos, insumos, formulas, pruebas, ajustes };
+const VIEWS = { inicio, feria, cotizar, productos, insumos, producir: producirVista, formulas, pruebas, ajustes };
 function pantalla(titulo, texto) {
   document.getElementById('app').replaceChildren(h('div', { class: 'surface empty' }, icon('alerta'), h('h3', {}, titulo), h('p', { class: 'muted small', style: 'margin:0' }, texto)));
 }

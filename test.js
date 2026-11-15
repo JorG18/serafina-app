@@ -1,11 +1,16 @@
 // node test.js [fixture.json]  — fixture = valores crudos de la planilla, como los devuelve el Apps Script.
 const assert = require('assert');
-const { fromSheet, toSheet, T, costo, comision, rankingPruebas } = require('./datos.js');
+const { fromSheet, toSheet, T, costo, comision, rankingPruebas, producir } = require('./datos.js');
 // Cuatro votos altos le ganan a un solo 5; salen todas; las sin votos van últimas aunque otra tenga menos de 3.
 const fx = ['e', 'a', 'b', 'c', 'd'].map((cod) => ({ cod }));
 const gente = [{ a: 5, b: 5, c: 3, d: 1 }, { a: 4 }, { a: 5 }, { a: 4 }];
 assert.deepStrictEqual(rankingPruebas(fx, gente).map((x) => [x.f.cod, x.votos]), [['a', 4], ['b', 1], ['c', 1], ['d', 1], ['e', 0]]);
 assert.strictEqual(rankingPruebas(fx, gente)[0].puntaje, 4);
+// Producir: 5 sprays de 100 ml al 4% = 500 ml justos; la esencia se reparte por gotas.
+const pr = producir([['Alcohol', 62.5], ['Agua', 37.5]], 4, 100, 5, [{ e: 'a', p: 3 }, { e: 'b', p: 1 }]);
+assert.deepStrictEqual([pr.base, pr.esencias], [[['Alcohol', 300], ['Agua', 180]], [['a', 15], ['b', 5]]]);
+assert.strictEqual(pr.base.concat(pr.esencias).reduce((s, x) => s + x[1], 0), pr.total);
+if (!process.argv[2] && !require('fs').existsSync('fixture.json')) { console.log('ok (sin fixture: solo cálculos)'); process.exit(0); }
 const sheet = require(require('path').resolve(process.argv[2] || 'fixture.json'));
 globalThis.db = fromSheet(sheet);
 const p = (n) => db.productos.find((x) => x.nombre === n);

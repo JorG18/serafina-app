@@ -97,4 +97,12 @@ function rankingPruebas(lista, personas) {
   }).sort((a, b) => !a.votos - !b.votos || b.puntaje - a.puntaje || b.votos - a.votos);
 }
 
-if (typeof module !== 'undefined') module.exports = { fromSheet, toSheet, T, costo, comision, rankingPruebas };
+// Producir: el tamaño es lo que pesa (o mide) terminado, esencia incluida, así nunca se pasa del envase.
+// esencia = total × carga%; la base ocupa el resto y se reparte por sus %; cada esencia por su peso en la mezcla (gotas o gramos).
+function producir(base, carga, tam, unidades, mezcla) {
+  const total = tam * unidades, esencia = total * carga / 100, resto = total - esencia;
+  const partes = mezcla.reduce((s, m) => s + m.p, 0) || 1;
+  return { total, esencia, base: base.map(([n, pct]) => [n, resto * pct / 100]), esencias: mezcla.map((m) => [m.e, esencia * m.p / partes]) };
+}
+
+if (typeof module !== 'undefined') module.exports = { fromSheet, toSheet, T, costo, comision, rankingPruebas, producir };
